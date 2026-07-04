@@ -19,9 +19,10 @@ hmqc_true.tsv (truth key) : label  H_ppm  C_ppm  res_type  True
     Same rows as hmqc.tsv plus a `True` column giving the real methyl identity
     for each anonymous label.  Used only for scoring, never as input.
 
-noesy.tsv : label  C1  C2  H2
+noesy.tsv : label  C1  C2  H2  intensity
     Methyl-methyl 3D (H)CCH NOESY cross peaks.  The observed methyl is (H2, C2);
     the NOE partner contributes carbon C1 only (its proton is not in the peak).
+    intensity is the cross-peak height (~ r^-6); read but not used for matching.
     Both directions are emitted for each close pair (symmetric NOESY).  MAUS
     matches the observed methyl by (H2,C2) and the partner by carbon C1.
 
@@ -156,10 +157,11 @@ def main(argv=None):
   Path(args.hmqc_out).write_text('\n'.join(in_lines) + '\n')
   Path(args.truth_out).write_text('\n'.join(true_lines) + '\n')
 
-  # --- NOESY peak list (3D (H)CCH): label C1 C2 H2 ---
+  # --- NOESY peak list (3D (H)CCH): label C1 C2 H2 intensity ---
   #   observed methyl = (H2, C2); partner methyl contributes carbon C1 only.
+  #   intensity ~ r^-6 (NOE buildup), scaled to readable numbers.
   #   Symmetric NOESY: emit both directions for each close pair.
-  noe = set()  # unordered (i,j), i<j, within long cut
+  noe = {}  # unordered (i,j), i<j -> distance, within long cut
   for a in range(len(methyls)):
     dists = sorted(
       (math.dist(methyls[a]['xyz'], methyls[b]['xyz']), b)
@@ -167,16 +169,17 @@ def main(argv=None):
     for d, b in dists[:args.keep_k]:
       if d > args.noe_long:
         break
-      noe.add((min(a, b), max(a, b)))
+      noe[(min(a, b), max(a, b))] = d
 
-  noesy_lines = ['label\tC1\tC2\tH2']
+  noesy_lines = ['label\tC1\tC2\tH2\tintensity']
   k = 0
-  for (a, b) in sorted(noe):
+  for (a, b), d in sorted(noe.items()):
+    intensity = round(d ** -6 * 1e6, 1)      # r^-6 buildup, arbitrary scale
     for obs, par in ((a, b), (b, a)):        # both directions
       k += 1
       mo, mp = methyls[obs], methyls[par]
       noesy_lines.append(
-        f'X{k}\t{mp["C"]:.3f}\t{mo["C"]:.3f}\t{mo["H"]:.3f}')
+        f'X{k}\t{mp["C"]:.3f}\t{mo["C"]:.3f}\t{mo["H"]:.3f}\t{intensity}')
   Path(args.noesy_out).write_text('\n'.join(noesy_lines) + '\n')
 
   # --- HMBC-HMQC geminal links (3D (H)CCH): label C1 C2 H2 ---

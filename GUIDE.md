@@ -103,13 +103,14 @@ Pass it with `--truth` to score; omit it to run blind.
 ### 4.3 NOESY peak list (TSV) — data-graph edges
 
 ```
-label <TAB> C1 <TAB> C2 <TAB> H2
-X1      24.56    25.39   0.340
+label <TAB> C1 <TAB> C2 <TAB> H2 <TAB> intensity
+X1      24.56    25.39   0.340   1372.4
 ```
 
 3D `(H)CCH` methyl-methyl cross peak. The **observed** methyl is `(H2, C2)`; the
 NOE **partner** contributes carbon `C1` only (a 3D peak has no partner proton).
-During the run the observed methyl is matched to an HMQC peak by `(H2,C2)` and
+`intensity` is the cross-peak height (~ `r^-6`); it is read but not used for
+matching. During the run the observed methyl is matched to an HMQC peak by `(H2,C2)` and
 the partner by carbon `C1` alone (within `--tol-h`/`--tol-c`). Single distance
 class (structure edge ≤ `long_cut`). Because ¹³C alone is degenerate, most cross
 peaks match several candidate partners and drop as ambiguous — carbon tolerance

@@ -8,7 +8,7 @@ Input for the SAT assigner `maus.py` (see repo root). MAUS now consumes real
 | `1ANF.pdb` | MBP crystal structure (methyl-carbon coordinates → structure graph G) |
 | `hmqc.tsv` | 192 methyl HMQC **input** peaks: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type` (anonymous `P1…`) |
 | `hmqc_true.tsv` | truth key: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True` (scoring only) |
-| `noesy.tsv` | 1650 3D `(H)CCH` NOESY cross peaks: `label ⇥ C1 ⇥ C2 ⇥ H2` (825 pairs ×2 directions) |
+| `noesy.tsv` | 1650 3D `(H)CCH` NOESY cross peaks: `label ⇥ C1 ⇥ C2 ⇥ H2 ⇥ intensity` (825 pairs ×2 directions) |
 | `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `label ⇥ C1 ⇥ C2 ⇥ H2` |
 | `hmqc_tentative.tsv` | same as `hmqc.tsv` but with 24 tentative anchors in the `res_type` cell |
 | `mbp_options.tsv` | reference output: per-peak option sets from the run below |

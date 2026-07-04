@@ -21,7 +21,7 @@ about the answer is baked into the indexing.
 - **Structure graph G** — one node per methyl carbon (from the PDB); edges
   classified geminal / short-range (`< short_cut`) / long-range (`< long_cut`).
 - **Data graph H** — nodes are **HMQC peaks** (`label`, residue type, ¹H/¹³C
-  shift); edges are **NOESY cross peaks** (3D `(H)CCH`: `label C1 C2 H2`). The
+  shift); edges are **NOESY cross peaks** (3D `(H)CCH`: `label C1 C2 H2 intensity`). The
   observed methyl is matched back to an HMQC peak by `(H2,C2)`; the NOE partner
   by carbon `C1` only (its proton is absent from a 3D peak).
 - **SAT encoding** — variable `x(i,j)` = HMQC peak *i* → methyl *j*. Hard
@@ -56,8 +56,9 @@ python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [opt
   anchors lift unique 51 → 79; runnable example:
   [`examples/mbp/hmqc_tentative.tsv`](examples/mbp#tentative-anchors)). An
   out-of-structure tentative label is ignored (falls back to the residue type).
-- `NOESY.tsv` — `label ⇥ C1 ⇥ C2 ⇥ H2` (3D `(H)CCH`). Observed methyl = `(H2,C2)`;
-  NOE partner = carbon `C1` only. Single distance class (≤ `long_cut`).
+- `NOESY.tsv` — `label ⇥ C1 ⇥ C2 ⇥ H2 ⇥ intensity` (3D `(H)CCH`). Observed methyl = `(H2,C2)`;
+  NOE partner = carbon `C1` only. `intensity` (~ `r^-6`) is read but not used for
+  matching. Single distance class (≤ `long_cut`).
 - `HMBC.tsv` (optional) — same layout `label ⇥ C1 ⇥ C2 ⇥ H2`. Each row links one
   Leu/Val residue's two prochiral methyls (observed `(H2,C2)`, geminal partner
   carbon `C1`); MAUS forces the pair onto a geminal structure edge. Pass with

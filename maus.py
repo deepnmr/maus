@@ -166,8 +166,9 @@ def load_truth(path: str) -> Dict[str, str]:
 
 
 def load_ccch(path: str, id_prefix: str) -> List[Tuple[float, float, float]]:
-  """Load a 3D (H)CCH-style peak list: label C1 C2 H2.  The observed methyl is
-  (H2, C2); the partner methyl contributes carbon C1 only.  Returns [(c1,c2,h2)].
+  """Load a 3D (H)CCH-style peak list: label C1 C2 H2 [intensity].  The observed
+  methyl is (H2, C2); the partner methyl contributes carbon C1 only.  A trailing
+  intensity column (NOESY) is ignored.  Returns [(c1,c2,h2)].
   Used for both NOESY and HMBC-HMQC (same layout)."""
   rows = []
   for line in Path(path).read_text().splitlines():
@@ -326,7 +327,7 @@ def main(argv=None):
   ap = argparse.ArgumentParser(description='MAUS: SAT-based methyl assignment (clean-room).')
   ap.add_argument('pdb')
   ap.add_argument('hmqc', help='HMQC peak list TSV: label H_ppm C_ppm res_type')
-  ap.add_argument('noesy', help='NOESY peak list TSV: label C1 C2 H2')
+  ap.add_argument('noesy', help='NOESY peak list TSV: label C1 C2 H2 intensity')
   ap.add_argument('--hmbc', default=None,
                   help='optional HMBC-HMQC peak list TSV (label C1 C2 H2): '
                        'geminal same-residue links for Leu/Val')
