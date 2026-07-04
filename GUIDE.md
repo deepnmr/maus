@@ -50,17 +50,17 @@ python make_peaklists.py examples/mbp/1ANF.pdb examples/mbp/bmr7114_3.str
 
 # 2. run MAUS on the HMQC + NOESY peak lists (--truth scores against the key)
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 --out mbp_options.tsv
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.01 --tol-c 0.05 --out mbp_options.tsv
 ```
 
 Expected summary:
 
 ```
-methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=825
-NOE match: firm=508 ambiguous(dropped)=317 unmatched=0
-unique(1 option)      = 130/192
-ambiguous(2-3 options)= 19/192
-ambiguous(>3 options) = 43/192
+methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=1650
+NOE match: firm=502 ambiguous(dropped)=1148 unmatched=0
+unique(1 option)      = 51/192
+ambiguous(2-3 options)= 81/192
+ambiguous(>3 options) = 60/192
 unassigned            = 0/192
 truth in option set   = 192/192 = 100.0%
 ```
@@ -97,28 +97,31 @@ Pass it with `--truth` to score; omit it to run blind.
 ### 4.3 NOESY peak list (TSV) — data-graph edges
 
 ```
-peak_id <TAB> H1 <TAB> C1 <TAB> H2 <TAB> C2 <TAB> mix
-X1        0.828    24.51   0.712    23.10   short
+label <TAB> C1 <TAB> C2 <TAB> H2
+X1      24.56    25.39   0.340
 ```
 
-Each row is a methyl-methyl cross peak. During the run both endpoints are
-matched back to HMQC peaks by frequency (within `--tol-h`/`--tol-c`); `mix` ∈
-`{short, long}` tags the mixing-time distance class.
+3D `(H)CCH` methyl-methyl cross peak. The **observed** methyl is `(H2, C2)`; the
+NOE **partner** contributes carbon `C1` only (a 3D peak has no partner proton).
+During the run the observed methyl is matched to an HMQC peak by `(H2,C2)` and
+the partner by carbon `C1` alone (within `--tol-h`/`--tol-c`). Single distance
+class (structure edge ≤ `long_cut`). Because ¹³C alone is degenerate, most cross
+peaks match several candidate partners and drop as ambiguous — carbon tolerance
+is the main resolution lever.
 
 ### 4.3b HMBC-HMQC peak list (TSV, optional) — geminal links
 
 ```
-label <TAB> C1 <TAB> C2 <TAB> H
-B1      25.39    24.56   0.340
+label <TAB> C1 <TAB> C2 <TAB> H2
+B1      24.56    25.39   0.340
 ```
 
-One row per Leu/Val residue: a methyl proton `H` correlated to its own carbon
-`C1` and its geminal partner's carbon `C2`. Pass with `--hmbc`; MAUS matches
-endpoint A by `(H,C1)` and endpoint B by carbon `C2` (partner proton absent),
-then forces the pair onto a geminal structure edge. The carbon-only endpoint is
-degenerate (on MBP ~1/50 links resolve; the rest drop), and even a firm link
-couples the pair without fixing which residue — so per-peak option *counts* are
-unchanged on MBP. The never-exclude guarantee is preserved.
+Same layout as the NOESY list. One row per Leu/Val residue: observed methyl
+`(H2, C2)`, geminal partner carbon `C1`. Pass with `--hmbc`; MAUS forces the pair
+onto a geminal structure edge. The carbon-only partner is degenerate (on MBP
+~1/50 links resolve), and even a firm link couples the pair without fixing which
+residue — so per-peak option *counts* are essentially unchanged. The
+never-exclude guarantee is preserved.
 
 ### 4.4 Generating the peak lists
 
@@ -177,11 +180,11 @@ degeneracy has real consequences.
 - `truth in option set = 100%` is the MAUS **guarantee**: a valid assignment is
   provably never excluded (not a measurement — a property of the exact
   enumeration).
-- The residual ambiguity is **real**. NOESY cross peaks whose endpoint matches
-  more than one HMQC peak cannot be pinned to a definite methyl pair and are
-  dropped, so shift-degenerate methyls keep several options. Tighter
-  `--tol-h/--tol-c` recovers more unique calls (170/192 at ±0.01/0.1) as fewer
-  NOEs are ambiguous — the honest resolution/degeneracy trade-off.
+- The residual ambiguity is **real** and dominated by the 3D format: the NOE
+  partner is matched on ¹³C only, which is degenerate, so most cross peaks match
+  several candidate partners and drop. Carbon tolerance is the main lever
+  (unique 29 → 51 → 70 /192 at `--tol-c` 0.1 / 0.05 / 0.02). A 4D experiment
+  resolving the partner proton would recover far more.
 
 The NOESY cross peaks themselves are still *generated from the structure* (close
 methyl pairs), so this remains a controlled benchmark rather than a picked

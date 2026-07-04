@@ -20,9 +20,10 @@ about the answer is baked into the indexing.
 
 - **Structure graph G** — one node per methyl carbon (from the PDB); edges
   classified geminal / short-range (`< short_cut`) / long-range (`< long_cut`).
-- **Data graph H** — nodes are **HMQC peaks** (`peak_id`, residue type, ¹H/¹³C
-  shift); edges are **NOESY cross peaks**, each endpoint matched back to an HMQC
-  peak *by frequency* within tolerance and tagged short/long by mixing time.
+- **Data graph H** — nodes are **HMQC peaks** (`label`, residue type, ¹H/¹³C
+  shift); edges are **NOESY cross peaks** (3D `(H)CCH`: `label C1 C2 H2`). The
+  observed methyl is matched back to an HMQC peak by `(H2,C2)`; the NOE partner
+  by carbon `C1` only (its proton is absent from a 3D peak).
 - **SAT encoding** — variable `x(i,j)` = HMQC peak *i* → methyl *j*. Hard
   constraints: exactly-one methyl per peak, injective map, and every NOESY cross
   peak that resolves to a definite pair of HMQC peaks mapped onto a structure
@@ -48,11 +49,12 @@ python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [opt
 
 - `HMQC.tsv` (input) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type`. `label` is an
   anonymous peak id (`P1, P2, …`) that leaks nothing about the answer.
-- `NOESY.tsv` — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
-- `HMBC.tsv` (optional) — `label ⇥ C1 ⇥ C2 ⇥ H`. A methyl proton `H` correlated
-  to its own carbon `C1` and its geminal partner's carbon `C2` (one Leu/Val
-  residue). MAUS matches endpoint A by `(H,C1)` and endpoint B by carbon `C2`,
-  then forces the pair onto a geminal structure edge. Pass with `--hmbc`.
+- `NOESY.tsv` — `label ⇥ C1 ⇥ C2 ⇥ H2` (3D `(H)CCH`). Observed methyl = `(H2,C2)`;
+  NOE partner = carbon `C1` only. Single distance class (≤ `long_cut`).
+- `HMBC.tsv` (optional) — same layout `label ⇥ C1 ⇥ C2 ⇥ H2`. Each row links one
+  Leu/Val residue's two prochiral methyls (observed `(H2,C2)`, geminal partner
+  carbon `C1`); MAUS forces the pair onto a geminal structure edge. Pass with
+  `--hmbc`.
 - `TRUTH.tsv` (optional, scoring only) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True`,
   where `True` is the real methyl for each label. Pass with `--truth` to score.
 
@@ -92,25 +94,29 @@ pairs), and `hmbc.tsv` (one geminal link per Leu/Val residue).
 
 ```bash
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 \
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.01 --tol-c 0.05 \
     --out examples/mbp/mbp_options.tsv
 ```
 
 ```
-methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=825
-NOE match: firm=508 ambiguous(dropped)=317 unmatched=0
-unique(1 option)      = 130/192
-ambiguous(2-3 options)= 19/192
-ambiguous(>3 options) = 43/192
+methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=1650
+NOE match (tol H±0.01/C±0.05): firm=502 ambiguous(dropped)=1148 unmatched=0
+unique(1 option)      = 51/192
+ambiguous(2-3 options)= 81/192
+ambiguous(>3 options) = 60/192
 unassigned            = 0/192
 truth in option set   = 192/192 = 100.0%  (error rate 0.0%)
 ```
 
-Real BMRB 7114 shifts + 1ANF geometry, fed as HMQC + NOESY peak lists. `truth in
-option set = 100%` is the MAUS guarantee (a valid assignment is never excluded).
-The residual ambiguity is real: 317 of 825 NOESY cross peaks have a degenerate
-endpoint that matches more than one HMQC peak, so they cannot be pinned to a
-methyl pair and methyls with degenerate shifts keep several options. Tightening
-`--tol-h/--tol-c` recovers more unique calls (170/192 at ±0.01/0.1) — the honest
-resolution/degeneracy trade-off. See [`examples/mbp/`](examples/mbp) and
+Real BMRB 7114 shifts + 1ANF geometry, fed as HMQC + 3D `(H)CCH` NOESY peak
+lists. `truth in option set = 100%` is the MAUS guarantee (a valid assignment is
+never excluded).
+
+The resolution is limited by the **3D data format**: a NOESY peak carries the
+observed methyl's proton but only the *carbon* of the NOE partner, and ¹³C alone
+is highly degenerate — so most cross peaks (1148 of 1650 even at ±0.05 ppm) match
+several candidate partners and drop as ambiguous. Carbon tolerance is the main
+lever (unique: 29 → 51 → 70 at ±0.1 / ±0.05 / ±0.02 ppm). A 4D experiment that
+also resolves the partner's proton would recover far more; MAUS never guesses in
+either case. See [`examples/mbp/`](examples/mbp) and
 [`COMPARISON.md`](COMPARISON.md).

@@ -19,17 +19,16 @@ hmqc_true.tsv (truth key) : label  H_ppm  C_ppm  res_type  True
     Same rows as hmqc.tsv plus a `True` column giving the real methyl identity
     for each anonymous label.  Used only for scoring, never as input.
 
-noesy.tsv : peak_id  H1  C1  H2  C2  mix
-    Methyl-methyl NOESY cross peaks.  Endpoint coordinates are the two
-    methyls' (1H,13C) shifts; `mix` in {short,long} tags the mixing-time
-    class.  Cross peaks are generated for structurally close methyl pairs;
-    MAUS re-matches each endpoint back to hmqc.tsv by frequency.
+noesy.tsv : label  C1  C2  H2
+    Methyl-methyl 3D (H)CCH NOESY cross peaks.  The observed methyl is (H2, C2);
+    the NOE partner contributes carbon C1 only (its proton is not in the peak).
+    Both directions are emitted for each close pair (symmetric NOESY).  MAUS
+    matches the observed methyl by (H2,C2) and the partner by carbon C1.
 
-hmbc.tsv : label  C1  C2  H
-    Optional HMBC-HMQC geminal links: one row per Leu/Val residue.  A methyl
-    proton (H) is correlated to its own methyl carbon (C1) and to its geminal
-    partner's carbon (C2).  MAUS matches endpoint A by (H,C1) and endpoint B by
-    carbon C2, then forces the pair onto a geminal structure edge.
+hmbc.tsv : label  C1  C2  H2
+    Optional HMBC-HMQC geminal links: one row per Leu/Val residue, same layout
+    as noesy.tsv.  The observed methyl is (H2, C2); its geminal partner
+    contributes carbon C1.  MAUS forces the pair onto a geminal structure edge.
 """
 
 from __future__ import annotations
@@ -132,8 +131,7 @@ def main(argv=None):
   ap = argparse.ArgumentParser()
   ap.add_argument('pdb')
   ap.add_argument('bmrb', help='NMR-STAR chemical shift file (bmrXXXX_3.str)')
-  ap.add_argument('--noe-short', type=float, default=6.0, help='short-mix NOE cutoff (A)')
-  ap.add_argument('--noe-long', type=float, default=8.0, help='long-mix NOE cutoff (A)')
+  ap.add_argument('--noe-long', type=float, default=8.0, help='NOE distance cutoff (A)')
   ap.add_argument('--keep-k', type=int, default=12, help='nearest-K NOE partners per methyl')
   ap.add_argument('--hmqc-out', default='examples/mbp/hmqc.tsv')
   ap.add_argument('--truth-out', default='examples/mbp/hmqc_true.tsv')
@@ -158,8 +156,10 @@ def main(argv=None):
   Path(args.hmqc_out).write_text('\n'.join(in_lines) + '\n')
   Path(args.truth_out).write_text('\n'.join(true_lines) + '\n')
 
-  # --- NOESY peak list: cross peaks for close methyl pairs (nearest-K, symmetric) ---
-  noe = {}  # (i,j) i<j -> 'short'/'long'
+  # --- NOESY peak list (3D (H)CCH): label C1 C2 H2 ---
+  #   observed methyl = (H2, C2); partner methyl contributes carbon C1 only.
+  #   Symmetric NOESY: emit both directions for each close pair.
+  noe = set()  # unordered (i,j), i<j, within long cut
   for a in range(len(methyls)):
     dists = sorted(
       (math.dist(methyls[a]['xyz'], methyls[b]['xyz']), b)
@@ -167,20 +167,20 @@ def main(argv=None):
     for d, b in dists[:args.keep_k]:
       if d > args.noe_long:
         break
-      key = (min(a, b), max(a, b))
-      mix = 'short' if d < args.noe_short else 'long'
-      # keep the tighter class if seen twice
-      if key not in noe or (noe[key] == 'long' and mix == 'short'):
-        noe[key] = mix
+      noe.add((min(a, b), max(a, b)))
 
-  noesy_lines = ['peak_id\tH1\tC1\tH2\tC2\tmix']
-  for k, ((a, b), mix) in enumerate(sorted(noe.items()), 1):
-    ma, mb = methyls[a], methyls[b]
-    noesy_lines.append(
-      f'X{k}\t{ma["H"]:.3f}\t{ma["C"]:.3f}\t{mb["H"]:.3f}\t{mb["C"]:.3f}\t{mix}')
+  noesy_lines = ['label\tC1\tC2\tH2']
+  k = 0
+  for (a, b) in sorted(noe):
+    for obs, par in ((a, b), (b, a)):        # both directions
+      k += 1
+      mo, mp = methyls[obs], methyls[par]
+      noesy_lines.append(
+        f'X{k}\t{mp["C"]:.3f}\t{mo["C"]:.3f}\t{mo["H"]:.3f}')
   Path(args.noesy_out).write_text('\n'.join(noesy_lines) + '\n')
 
-  # --- HMBC-HMQC geminal links: one row per Leu/Val residue (CD1<->CD2, CG1<->CG2) ---
+  # --- HMBC-HMQC geminal links (3D (H)CCH): label C1 C2 H2 ---
+  #   observed methyl = (H2, C2); geminal partner contributes carbon C1 only.
   by_label = {m['label']: m for m in methyls}
   hmbc_pairs = []
   for m in methyls:
@@ -191,11 +191,11 @@ def main(argv=None):
     partner = by_label.get(m['label'][:-len(m['carbon'])] + m['geminal'])
     if partner is not None:
       hmbc_pairs.append((m, partner))
-  hmbc_lines = ['label\tC1\tC2\tH']
-  for k, (ma, mb) in enumerate(hmbc_pairs, 1):
-    # own methyl ma: proton H + carbon C1; partner mb: carbon C2
+  hmbc_lines = ['label\tC1\tC2\tH2']
+  for k, (mo, mp) in enumerate(hmbc_pairs, 1):
+    # observed methyl mo: proton H2 + carbon C2; partner mp: carbon C1
     hmbc_lines.append(
-      f'B{k}\t{ma["C"]:.3f}\t{mb["C"]:.3f}\t{ma["H"]:.3f}')
+      f'B{k}\t{mp["C"]:.3f}\t{mo["C"]:.3f}\t{mo["H"]:.3f}')
   Path(args.hmbc_out).write_text('\n'.join(hmbc_lines) + '\n')
 
   # --- degeneracy report ---
@@ -208,8 +208,7 @@ def main(argv=None):
   print(f'methyls with BMRB shift + structure = {len(methyls)}')
   print(f'HMQC input peaks    = {len(methyls)}  -> {args.hmqc_out}')
   print(f'HMQC truth key      = {len(methyls)}  -> {args.truth_out}')
-  print(f'NOESY cross peaks   = {len(noe)}  (short={sum(v=="short" for v in noe.values())}'
-        f' long={sum(v=="long" for v in noe.values())})  -> {args.noesy_out}')
+  print(f'NOESY cross peaks   = {2*len(noe)}  ({len(noe)} pairs x2 directions)  -> {args.noesy_out}')
   print(f'HMBC geminal links  = {len(hmbc_pairs)}  -> {args.hmbc_out}')
   print(f'near-degenerate HMQC peaks (>=2 within 0.01/0.01 ppm bin) = {degenerate}')
   return 0

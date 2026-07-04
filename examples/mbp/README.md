@@ -8,8 +8,8 @@ Input for the SAT assigner `maus.py` (see repo root). MAUS now consumes real
 | `1ANF.pdb` | MBP crystal structure (methyl-carbon coordinates → structure graph G) |
 | `hmqc.tsv` | 192 methyl HMQC **input** peaks: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type` (anonymous `P1…`) |
 | `hmqc_true.tsv` | truth key: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True` (scoring only) |
-| `noesy.tsv` | 825 methyl-methyl NOESY cross peaks: `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` |
-| `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `label ⇥ C1 ⇥ C2 ⇥ H` |
+| `noesy.tsv` | 1650 3D `(H)CCH` NOESY cross peaks: `label ⇥ C1 ⇥ C2 ⇥ H2` (825 pairs ×2 directions) |
+| `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `label ⇥ C1 ⇥ C2 ⇥ H2` |
 | `mbp_options.tsv` | reference output: per-peak option sets from the run below |
 
 Both peak lists are generated from **BMRB 7114 chemical shifts** and the 1ANF
@@ -27,30 +27,38 @@ Run MAUS:
 
 ```bash
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 \
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.01 --tol-c 0.05 \
     --out examples/mbp/mbp_options.tsv
 ```
 
-Expected (default tolerance ¹H ±0.02 / ¹³C ±0.2 ppm):
+Expected (¹H ±0.01 / ¹³C ±0.05 ppm):
 
 ```
-methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=825
-NOE match: firm=508 ambiguous(dropped)=317 unmatched=0
-unique(1 option)      = 130/192
-ambiguous(2-3 options)= 19/192
-ambiguous(>3 options) = 43/192
+methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=1650
+NOE match: firm=502 ambiguous(dropped)=1148 unmatched=0
+unique(1 option)      = 51/192
+ambiguous(2-3 options)= 81/192
+ambiguous(>3 options) = 60/192
 unassigned            = 0/192
 truth in option set   = 192/192 = 100.0%  (error rate 0.0%)
 ```
 
 **What the numbers mean.** `truth in option set = 100%` is the MAUS guarantee: a
-valid assignment is provably never excluded. The residual ambiguity is real —
-NOESY cross peaks whose endpoints match more than one HMQC peak (317 of 825 at
-this tolerance) cannot be assigned to a definite methyl pair and are dropped, so
-methyls with degenerate shifts keep several options (e.g. the geminal Val γ1/γ2
-and Leu δ1/δ2 pairs, and shift-degenerate Ala/Thr/Leu clusters). Tightening
-`--tol-h/--tol-c` recovers more unique calls (170/192 at ±0.01/0.1) as fewer NOEs
-are ambiguous — the honest resolution/degeneracy trade-off.
+valid assignment is provably never excluded. The resolution is capped by the
+**3D `(H)CCH` format**: each NOESY peak gives the observed methyl's proton but
+only the *carbon* of the NOE partner, and ¹³C alone is degenerate — so 1148 of
+1650 cross peaks match several candidate partners and drop as ambiguous. Carbon
+tolerance is the main lever:
+
+| `--tol-c` | firm NOE edges | unique |
+|---|---|---|
+| 0.10 | 214 | 29/192 |
+| 0.05 | 428 | 51/192 |
+| 0.02 | 630 | 70/192 |
+
+A 4D experiment resolving the partner's proton too would recover far more; MAUS
+never guesses in either case (geminal Val γ1/γ2 and Leu δ1/δ2 pairs stay
+2-option, intrinsically unresolvable).
 
 Compare with MAGIC on the same data in [`../../COMPARISON.md`](../../COMPARISON.md)
 (MAGIC lives in the sibling `../magic/` project).
