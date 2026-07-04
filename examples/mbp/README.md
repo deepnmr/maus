@@ -6,7 +6,8 @@ Input for the SAT assigner `maus.py` (see repo root). MAUS now consumes real
 | file | contents |
 |---|---|
 | `1ANF.pdb` | MBP crystal structure (methyl-carbon coordinates → structure graph G) |
-| `hmqc.tsv` | 192 methyl HMQC peaks: `peak_id ⇥ res_type ⇥ H_ppm ⇥ C_ppm ⇥ truth_label` |
+| `hmqc.tsv` | 192 methyl HMQC **input** peaks: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type` (anonymous `P1…`) |
+| `hmqc_true.tsv` | truth key: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True` (scoring only) |
 | `noesy.tsv` | 825 methyl-methyl NOESY cross peaks: `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` |
 | `mbp_options.tsv` | reference output: per-peak option sets from the run below |
 
@@ -25,7 +26,8 @@ Run MAUS:
 
 ```bash
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --tol-h 0.02 --tol-c 0.2 --out examples/mbp/mbp_options.tsv
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 \
+    --out examples/mbp/mbp_options.tsv
 ```
 
 Expected (default tolerance ¹H ±0.02 / ¹³C ±0.2 ppm):

@@ -43,14 +43,17 @@ python3 -m pip install python-sat
 ## Usage
 
 ```bash
-python maus.py PDB HMQC.tsv NOESY.tsv [options]
+python maus.py PDB HMQC.tsv NOESY.tsv [--truth TRUTH.tsv] [options]
 ```
 
-- `HMQC.tsv` — tab-separated: `peak_id ⇥ res_type ⇥ H_ppm ⇥ C_ppm ⇥ truth_label`
-- `NOESY.tsv` — tab-separated: `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
+- `HMQC.tsv` (input) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type`. `label` is an
+  anonymous peak id (`P1, P2, …`) that leaks nothing about the answer.
+- `NOESY.tsv` — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
+- `TRUTH.tsv` (optional, scoring only) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True`,
+  where `True` is the real methyl for each label. Pass with `--truth` to score.
 
-`truth_label` is used only for scoring. Build both lists from a BMRB shift file
-plus a PDB with `make_peaklists.py` (see below).
+Build all three from a BMRB shift file plus a PDB with `make_peaklists.py`
+(see below).
 
 | option | default | meaning |
 |---|---|---|
@@ -68,15 +71,16 @@ python make_peaklists.py PDB bmrXXXX_3.str \
     --noe-short 6.0 --noe-long 8.0 --keep-k 12
 ```
 
-Writes `hmqc.tsv` (one (¹H,¹³C) peak per methyl, from BMRB shifts) and
-`noesy.tsv` (methyl-methyl cross peaks for structurally close pairs, endpoint
-coordinates = the two methyls' shifts).
+Writes `hmqc.tsv` (input, anonymous labels), `hmqc_true.tsv` (truth key with the
+`True` column), and `noesy.tsv` (methyl-methyl cross peaks for structurally close
+pairs, endpoint coordinates = the two methyls' shifts).
 
 ## Example — maltose-binding protein
 
 ```bash
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --tol-h 0.02 --tol-c 0.2 --out examples/mbp/mbp_options.tsv
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 \
+    --out examples/mbp/mbp_options.tsv
 ```
 
 ```

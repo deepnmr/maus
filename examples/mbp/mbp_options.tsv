@@ -1,4 +1,4 @@
-peak_id	res_type	n_options	options	truth	truth_in_set
+label	res_type	n_options	options	truth	truth_in_set
 P1	L	1	L7CD1	L7CD1	1
 P2	L	1	L7CD2	L7CD2	1
 P3	V	2	V8CG1,V8CG2	V8CG1	1

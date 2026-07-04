@@ -48,9 +48,9 @@ Requirements:
 # 1. build peak lists from a BMRB shift file + the PDB
 python make_peaklists.py examples/mbp/1ANF.pdb examples/mbp/bmr7114_3.str
 
-# 2. run MAUS on the HMQC + NOESY peak lists
+# 2. run MAUS on the HMQC + NOESY peak lists (--truth scores against the key)
 python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
-    --tol-h 0.02 --tol-c 0.2 --out mbp_options.tsv
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.02 --tol-c 0.2 --out mbp_options.tsv
 ```
 
 Expected summary:
@@ -74,17 +74,25 @@ truth in option set   = 192/192 = 100.0%
 Standard `ATOM` records. Only these residue types are parsed by default:
 `ALA ILE LEU MET THR VAL`. Chain `A` (or blank) is used.
 
-### 4.2 HMQC peak list (TSV) — data-graph nodes
+### 4.2 HMQC peak list (TSV) — data-graph nodes (input)
 
 ```
-peak_id <TAB> res_type <TAB> H_ppm <TAB> C_ppm <TAB> truth_label
-P1        L                 0.828         24.510      L7CD1
+label <TAB> H_ppm <TAB> C_ppm <TAB> res_type
+P1      0.828        24.510       L
 ```
 
-- `peak_id` — arbitrary unique string
-- `res_type` — one-letter code (`A I L M T V`), known from labeling
+- `label` — anonymous peak id (`P1, P2, …`); leaks nothing about the answer
 - `H_ppm`, `C_ppm` — methyl (¹H, ¹³C) chemical shifts
-- `truth_label` — ground-truth methyl label (for scoring only)
+- `res_type` — one-letter code (`A I L M T V`), known from labeling
+
+Ground truth lives in a **separate** file, never in the input:
+
+```
+label <TAB> H_ppm <TAB> C_ppm <TAB> res_type <TAB> True
+P1      0.828        24.510       L             L7CD1
+```
+
+Pass it with `--truth` to score; omit it to run blind.
 
 ### 4.3 NOESY peak list (TSV) — data-graph edges
 
@@ -99,9 +107,10 @@ matched back to HMQC peaks by frequency (within `--tol-h`/`--tol-c`); `mix` ∈
 
 ### 4.4 Generating the peak lists
 
-`make_peaklists.py` builds both lists from a PDB and a BMRB NMR-STAR shift file
-(`bmrXXXX_3.str`): the HMQC (¹H,¹³C) coordinates are the real BMRB methyl shifts,
-and NOESY cross peaks are emitted for structurally close methyl pairs.
+`make_peaklists.py` builds all three files from a PDB and a BMRB NMR-STAR shift
+file (`bmrXXXX_3.str`): `hmqc.tsv` (input), `hmqc_true.tsv` (truth key), and
+`noesy.tsv`. HMQC (¹H,¹³C) coordinates are the real BMRB methyl shifts; NOESY
+cross peaks are emitted for structurally close methyl pairs.
 
 ---
 
@@ -127,12 +136,12 @@ The `--out` TSV columns:
 
 | Column | Meaning |
 |---|---|
-| `peak_id` | input peak identifier |
+| `label` | input peak identifier (anonymous) |
 | `res_type` | one-letter residue type |
 | `n_options` | number of valid methyls |
 | `options` | comma-separated methyl labels |
-| `truth` | ground-truth label |
-| `truth_in_set` | 1 if truth ∈ options, else 0 |
+| `truth` | ground-truth label (blank if no `--truth`) |
+| `truth_in_set` | 1 if truth ∈ options, else 0 (blank if no `--truth`) |
 
 - **1 option** → uniquely assigned.
 - **2–3 options** → residual ambiguity, usually geminal/local symmetry.

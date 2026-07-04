@@ -10,11 +10,14 @@ paper.
 
 Outputs
 -------
-hmqc.tsv : peak_id  res_type  H_ppm  C_ppm  truth_label
-    One 2D methyl peak per methyl group.  (1H, 13C) = data-graph node
-    coordinates; residue *type* is known (from the labeling / spectral
-    region); the *identity* (truth_label) is what MAUS must recover and is
-    carried only for scoring.
+hmqc.tsv (input) : label  H_ppm  C_ppm  res_type
+    What MAUS actually sees.  `label` is an anonymous peak id (P1, P2, ...) that
+    leaks nothing about the answer.  (1H, 13C) = data-graph node coordinates;
+    residue *type* is known (from the labeling / spectral region).
+
+hmqc_true.tsv (truth key) : label  H_ppm  C_ppm  res_type  True
+    Same rows as hmqc.tsv plus a `True` column giving the real methyl identity
+    for each anonymous label.  Used only for scoring, never as input.
 
 noesy.tsv : peak_id  H1  C1  H2  C2  mix
     Methyl-methyl NOESY cross peaks.  Endpoint coordinates are the two
@@ -127,6 +130,7 @@ def main(argv=None):
   ap.add_argument('--noe-long', type=float, default=8.0, help='long-mix NOE cutoff (A)')
   ap.add_argument('--keep-k', type=int, default=12, help='nearest-K NOE partners per methyl')
   ap.add_argument('--hmqc-out', default='examples/mbp/hmqc.tsv')
+  ap.add_argument('--truth-out', default='examples/mbp/hmqc_true.tsv')
   ap.add_argument('--noesy-out', default='examples/mbp/noesy.tsv')
   args = ap.parse_args(argv)
 
@@ -134,11 +138,18 @@ def main(argv=None):
   shifts = parse_bmrb_shifts(Path(args.bmrb).read_text().splitlines())
   methyls = build_methyls(coords, shifts)
 
-  # --- HMQC peak list ---
-  hmqc_lines = ['peak_id\tres_type\tH_ppm\tC_ppm\ttruth_label']
+  # --- HMQC peak lists ---
+  # input: anonymous label (P1..) so nothing about the answer leaks;
+  # truth key: same rows + a `True` column mapping label -> real methyl.
+  in_lines = ['label\tH_ppm\tC_ppm\tres_type']
+  true_lines = ['label\tH_ppm\tC_ppm\tres_type\tTrue']
   for i, m in enumerate(methyls, 1):
-    hmqc_lines.append(f'P{i}\t{m["res_type"]}\t{m["H"]:.3f}\t{m["C"]:.3f}\t{m["label"]}')
-  Path(args.hmqc_out).write_text('\n'.join(hmqc_lines) + '\n')
+    pid = f'P{i}'
+    row = f'{pid}\t{m["H"]:.3f}\t{m["C"]:.3f}\t{m["res_type"]}'
+    in_lines.append(row)
+    true_lines.append(f'{row}\t{m["label"]}')
+  Path(args.hmqc_out).write_text('\n'.join(in_lines) + '\n')
+  Path(args.truth_out).write_text('\n'.join(true_lines) + '\n')
 
   # --- NOESY peak list: cross peaks for close methyl pairs (nearest-K, symmetric) ---
   noe = {}  # (i,j) i<j -> 'short'/'long'
@@ -170,7 +181,8 @@ def main(argv=None):
   degenerate = sum(1 for m in methyls
                    if seen[(round(m['H'], 2), round(m['C'], 2))] > 1)
   print(f'methyls with BMRB shift + structure = {len(methyls)}')
-  print(f'HMQC peaks written  = {len(methyls)}  -> {args.hmqc_out}')
+  print(f'HMQC input peaks    = {len(methyls)}  -> {args.hmqc_out}')
+  print(f'HMQC truth key      = {len(methyls)}  -> {args.truth_out}')
   print(f'NOESY cross peaks   = {len(noe)}  (short={sum(v=="short" for v in noe.values())}'
         f' long={sum(v=="long" for v in noe.values())})  -> {args.noesy_out}')
   print(f'near-degenerate HMQC peaks (>=2 within 0.01/0.01 ppm bin) = {degenerate}')

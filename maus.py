@@ -119,18 +119,30 @@ class Peak:
   res_type: str
   h_ppm: float
   c_ppm: float
-  truth_label: str
 
 
 def load_hmqc(path: str) -> List[Peak]:
+  """Input HMQC peak list: label  H_ppm  C_ppm  res_type.  `label` is an
+  anonymous peak id and carries nothing about the answer."""
   peaks: List[Peak] = []
   for line in Path(path).read_text().splitlines():
-    if not line.strip() or line.startswith('#') or line.startswith('peak_id'):
+    if not line.strip() or line.startswith('#') or line.startswith('label'):
       continue
-    pid, rtype, h, c, truth = line.split('\t')
-    peaks.append(Peak(index=len(peaks), peak_id=pid, res_type=rtype,
-                      h_ppm=float(h), c_ppm=float(c), truth_label=truth))
+    label, h, c, rtype = line.split('\t')
+    peaks.append(Peak(index=len(peaks), peak_id=label, res_type=rtype.strip(),
+                      h_ppm=float(h), c_ppm=float(c)))
   return peaks
+
+
+def load_truth(path: str) -> Dict[str, str]:
+  """Truth key: label  H_ppm  C_ppm  res_type  True.  Returns {label: True}."""
+  truth: Dict[str, str] = {}
+  for line in Path(path).read_text().splitlines():
+    if not line.strip() or line.startswith('#') or line.startswith('label'):
+      continue
+    cols = line.split('\t')
+    truth[cols[0]] = cols[4].strip()
+  return truth
 
 
 @dataclass(frozen=True)
@@ -266,8 +278,10 @@ def parse_labeling(spec: str) -> Dict[str, List[Tuple[str, Optional[str]]]]:
 def main(argv=None):
   ap = argparse.ArgumentParser(description='MAUS: SAT-based methyl assignment (clean-room).')
   ap.add_argument('pdb')
-  ap.add_argument('hmqc', help='HMQC peak list TSV: peak_id res_type H_ppm C_ppm truth_label')
+  ap.add_argument('hmqc', help='HMQC peak list TSV: label H_ppm C_ppm res_type')
   ap.add_argument('noesy', help='NOESY peak list TSV: peak_id H1 C1 H2 C2 mix')
+  ap.add_argument('--truth', default=None,
+                  help='truth key TSV (label ... True) for scoring only')
   ap.add_argument('--short-cut', type=float, default=6.0, help='structure short-range cutoff (A)')
   ap.add_argument('--long-cut', type=float, default=10.0, help='structure long-range cutoff (A)')
   ap.add_argument('--tol-h', type=float, default=0.02, help='1H match tolerance (ppm)')
@@ -287,20 +301,25 @@ def main(argv=None):
   options = maus.solve_options()
 
   label_by_index = {m.index: m.label for m in methyls}
+  truth = load_truth(args.truth) if args.truth else {}
+
+  def truth_of(p):
+    return truth.get(p.peak_id, '')
+
   if args.out:
     with open(args.out, 'w') as f:
-      f.write('peak_id\tres_type\tn_options\toptions\ttruth\ttruth_in_set\n')
+      f.write('label\tres_type\tn_options\toptions\ttruth\ttruth_in_set\n')
       for p in peaks:
         labels = [label_by_index[g] for g in options[p.index]]
+        t = truth_of(p)
+        in_set = '' if not truth else int(t in labels)
         f.write(f'{p.peak_id}\t{p.res_type}\t{len(labels)}\t'
-                f'{",".join(labels)}\t{p.truth_label}\t'
-                f'{int(p.truth_label in labels)}\n')
+                f'{",".join(labels)}\t{t}\t{in_set}\n')
 
   n = len(peaks)
-  unique = amb23 = amb_more = unassigned = correct_in_set = 0
+  unique = amb23 = amb_more = unassigned = 0
   for p in peaks:
-    labels = [label_by_index[g] for g in options[p.index]]
-    k = len(labels)
+    k = len(options[p.index])
     if k == 0:
       unassigned += 1
     elif k == 1:
@@ -309,11 +328,6 @@ def main(argv=None):
       amb23 += 1
     else:
       amb_more += 1
-    if p.truth_label in labels:
-      correct_in_set += 1
-  unique_correct = sum(1 for p in peaks
-                       if len(options[p.index]) == 1
-                       and label_by_index[options[p.index][0]] == p.truth_label)
 
   print(f'methyls(G nodes)={len(methyls)}  HMQC peaks={n}  NOESY cross peaks={len(crosses)}')
   print(f'G edges: geminal={len(gem)//2} short={len(short_g)//2} long={len(long_g)//2}')
@@ -324,9 +338,18 @@ def main(argv=None):
   print(f'ambiguous(2-3 options)= {amb23}/{n}')
   print(f'ambiguous(>3 options) = {amb_more}/{n}')
   print(f'unassigned            = {unassigned}/{n}')
-  print(f'truth in option set   = {correct_in_set}/{n} = {100*correct_in_set/n:.1f}%  (error rate {100*(n-correct_in_set)/n:.1f}%)')
-  denom = unique or 1
-  print(f'unique calls correct  = {unique_correct}/{unique} = {100*unique_correct/denom:.1f}%')
+
+  if truth:
+    correct_in_set = sum(1 for p in peaks
+                         if truth_of(p) in [label_by_index[g] for g in options[p.index]])
+    unique_correct = sum(1 for p in peaks
+                         if len(options[p.index]) == 1
+                         and label_by_index[options[p.index][0]] == truth_of(p))
+    denom = unique or 1
+    print(f'truth in option set   = {correct_in_set}/{n} = {100*correct_in_set/n:.1f}%  (error rate {100*(n-correct_in_set)/n:.1f}%)')
+    print(f'unique calls correct  = {unique_correct}/{unique} = {100*unique_correct/denom:.1f}%')
+  else:
+    print('(no --truth given; scoring skipped)')
   return 0
 
 
