@@ -53,8 +53,9 @@ python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [opt
   (`L45D2` = Leu45 Cδ2; the `C` may be omitted). A tentative cell pins that
   peak's domain to the named methyl, and the constraint propagates through the
   NOE network to sharpen the rest — a few anchors go a long way (on MBP 24
-  anchors lift unique 51 → 79). An out-of-structure tentative label is ignored
-  (falls back to the residue type).
+  anchors lift unique 51 → 79; runnable example:
+  [`examples/mbp/hmqc_tentative.tsv`](examples/mbp#tentative-anchors)). An
+  out-of-structure tentative label is ignored (falls back to the residue type).
 - `NOESY.tsv` — `label ⇥ C1 ⇥ C2 ⇥ H2` (3D `(H)CCH`). Observed methyl = `(H2,C2)`;
   NOE partner = carbon `C1` only. Single distance class (≤ `long_cut`).
 - `HMBC.tsv` (optional) — same layout `label ⇥ C1 ⇥ C2 ⇥ H2`. Each row links one
@@ -124,5 +125,14 @@ is highly degenerate — so most cross peaks (1148 of 1650 even at ±0.05 ppm) m
 several candidate partners and drop as ambiguous. Carbon tolerance is the main
 lever (unique: 29 → 51 → 70 at ±0.1 / ±0.05 / ±0.02 ppm). A 4D experiment that
 also resolves the partner's proton would recover far more; MAUS never guesses in
-either case. See [`examples/mbp/`](examples/mbp) and
-[`COMPARISON.md`](COMPARISON.md).
+either case.
+
+Feeding 24 tentative anchors instead lifts unique to 79/192 — see
+[**tentative anchors**](examples/mbp#tentative-anchors) for the runnable command:
+
+```bash
+python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc_tentative.tsv examples/mbp/noesy.tsv \
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.01 --tol-c 0.05
+```
+
+See [`examples/mbp/`](examples/mbp) and [`COMPARISON.md`](COMPARISON.md).
