@@ -10,6 +10,7 @@ Input for the SAT assigner `maus.py` (see repo root). MAUS now consumes real
 | `hmqc_true.tsv` | truth key: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True` (scoring only) |
 | `noesy.tsv` | 1650 3D `(H)CCH` NOESY cross peaks: `label ⇥ C1 ⇥ C2 ⇥ H2` (825 pairs ×2 directions) |
 | `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `label ⇥ C1 ⇥ C2 ⇥ H2` |
+| `hmqc_tentative.tsv` | same as `hmqc.tsv` but with 24 tentative anchors in the `res_type` cell |
 | `mbp_options.tsv` | reference output: per-peak option sets from the run below |
 
 Both peak lists are generated from **BMRB 7114 chemical shifts** and the 1ANF
@@ -59,6 +60,28 @@ tolerance is the main lever:
 A 4D experiment resolving the partner's proton too would recover far more; MAUS
 never guesses in either case (geminal Val γ1/γ2 and Leu δ1/δ2 pairs stay
 2-option, intrinsically unresolvable).
+
+## Tentative anchors
+
+`hmqc_tentative.tsv` is `hmqc.tsv` with 24 peaks carrying a tentative assignment
+in the `res_type` cell (e.g. `L7D1`, `A21B`, `V37G1`) instead of a bare type.
+Each pins that peak to one methyl; the constraint propagates through the NOE
+network:
+
+```bash
+python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc_tentative.tsv examples/mbp/noesy.tsv \
+    --truth examples/mbp/hmqc_true.tsv --tol-h 0.01 --tol-c 0.05
+```
+
+```
+tentative anchors used = 24
+unique(1 option)      = 79/192      (vs 51/192 with no anchors)
+ambiguous(2-3 options)= 68/192
+ambiguous(>3 options) = 45/192
+truth in option set   = 192/192 = 100.0%
+```
+
+24 anchors lift unique calls 51 → 79 while the never-exclude guarantee holds.
 
 Compare with MAGIC on the same data in [`../../COMPARISON.md`](../../COMPARISON.md)
 (MAGIC lives in the sibling `../magic/` project).
