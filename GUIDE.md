@@ -79,11 +79,17 @@ Standard `ATOM` records. Only these residue types are parsed by default:
 ```
 label <TAB> H_ppm <TAB> C_ppm <TAB> res_type
 P1      0.828        24.510       L
+P7      0.340        25.390       L45D2
 ```
 
 - `label` — anonymous peak id (`P1, P2, …`); leaks nothing about the answer
 - `H_ppm`, `C_ppm` — methyl (¹H, ¹³C) chemical shifts
-- `res_type` — one-letter code (`A I L M T V`), known from labeling
+- `res_type` — one-letter code (`A I L M T V`), known from labeling, **or** a
+  *tentative assignment* like `L45D2` (Leu45 Cδ2; the leading `C` is optional,
+  so `L45D2` = `L45CD2`). A tentative cell pins that peak's candidate methyls to
+  the single named one; the constraint then propagates through the NOE network
+  to reduce ambiguity elsewhere. A tentative label absent from the structure is
+  ignored (falls back to the residue type). Runs print `tentative anchors used`.
 
 Ground truth lives in a **separate** file, never in the input:
 

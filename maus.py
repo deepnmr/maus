@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
@@ -120,18 +121,36 @@ class Peak:
   res_type: str
   h_ppm: float
   c_ppm: float
+  tentative: str = ''     # normalized structure label (e.g. L45CD2), or ''
+
+
+def parse_res_field(cell: str) -> Tuple[str, str]:
+  """The HMQC res_type cell is either a bare one-letter type (`L`) or a
+  *tentative* assignment (`L45D2` / `L45CD2`).  Returns (one_letter_type,
+  tentative_label) where the tentative label is normalized to structure form
+  (methyl carbon prefixed with 'C'); tentative is '' for a bare type."""
+  cell = cell.strip()
+  m = re.match(r'^([A-Z])(\d+)([A-Za-z]\w*)$', cell)
+  if not m:
+    return cell, ''                      # bare one-letter type
+  one, num, atom = m.group(1), m.group(2), m.group(3).upper()
+  if not atom.startswith('C'):
+    atom = 'C' + atom                    # D2 -> CD2, G1 -> CG1, B -> CB
+  return one, f'{one}{num}{atom}'
 
 
 def load_hmqc(path: str) -> List[Peak]:
   """Input HMQC peak list: label  H_ppm  C_ppm  res_type.  `label` is an
-  anonymous peak id and carries nothing about the answer."""
+  anonymous peak id; the res_type cell may be a bare type (`L`) or a tentative
+  assignment (`L45D2`) that pins the peak's domain to one methyl."""
   peaks: List[Peak] = []
   for line in Path(path).read_text().splitlines():
     if not line.strip() or line.startswith('#') or line.startswith('label'):
       continue
     label, h, c, rtype = line.split('\t')
-    peaks.append(Peak(index=len(peaks), peak_id=label, res_type=rtype.strip(),
-                      h_ppm=float(h), c_ppm=float(c)))
+    one, tent = parse_res_field(rtype)
+    peaks.append(Peak(index=len(peaks), peak_id=label, res_type=one,
+                      h_ppm=float(h), c_ppm=float(c), tentative=tent))
   return peaks
 
 
@@ -216,12 +235,19 @@ class MAUS:
     self.sites_by_type: Dict[str, List[int]] = {}
     for m in methyls:
       self.sites_by_type.setdefault(m.res_type, []).append(m.index)
+    idx_by_label = {m.label: m.index for m in methyls}
     # SAT variable ids: x[(peak_i, methyl_g)]
     self.var: Dict[Tuple[int, int], int] = {}
     self.domain: Dict[int, List[int]] = {}
+    self.n_tentative = 0
     nid = 1
     for p in peaks:
       dom = self.sites_by_type.get(p.res_type, [])
+      # tentative assignment pins the domain to the named methyl (if it exists
+      # and is of the right type); otherwise it is ignored (falls back to type).
+      if p.tentative and idx_by_label.get(p.tentative) in dom:
+        dom = [idx_by_label[p.tentative]]
+        self.n_tentative += 1
       self.domain[p.index] = dom
       for g in dom:
         self.var[(p.index, g)] = nid
@@ -357,6 +383,8 @@ def main(argv=None):
       amb_more += 1
 
   print(f'methyls(G nodes)={len(methyls)}  HMQC peaks={n}  NOESY cross peaks={len(crosses)}')
+  if maus.n_tentative:
+    print(f'tentative anchors used = {maus.n_tentative}')
   print(f'G edges: geminal={len(gem)//2} short={len(short_g)//2} long={len(long_g)//2}')
   print(f'NOE match (tol H+-{args.tol_h}/C+-{args.tol_c}): '
         f'firm={nstat["firm"]} ambiguous(dropped)={nstat["ambiguous"]} unmatched={nstat["unmatched"]}')

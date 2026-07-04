@@ -48,7 +48,13 @@ python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [opt
 ```
 
 - `HMQC.tsv` (input) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type`. `label` is an
-  anonymous peak id (`P1, P2, …`) that leaks nothing about the answer.
+  anonymous peak id (`P1, P2, …`) that leaks nothing about the answer. The
+  `res_type` cell may be a bare type (`L`) **or a tentative assignment**
+  (`L45D2` = Leu45 Cδ2; the `C` may be omitted). A tentative cell pins that
+  peak's domain to the named methyl, and the constraint propagates through the
+  NOE network to sharpen the rest — a few anchors go a long way (on MBP 24
+  anchors lift unique 51 → 79). An out-of-structure tentative label is ignored
+  (falls back to the residue type).
 - `NOESY.tsv` — `label ⇥ C1 ⇥ C2 ⇥ H2` (3D `(H)CCH`). Observed methyl = `(H2,C2)`;
   NOE partner = carbon `C1` only. Single distance class (≤ `long_cut`).
 - `HMBC.tsv` (optional) — same layout `label ⇥ C1 ⇥ C2 ⇥ H2`. Each row links one
