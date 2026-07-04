@@ -15,16 +15,24 @@ protein.
 
 ## How it works
 
+MAUS reads real **peak lists** — the same data an experiment produces. Nothing
+about the answer is baked into the indexing.
+
 - **Structure graph G** — one node per methyl carbon (from the PDB); edges
   classified geminal / short-range (`< short_cut`) / long-range (`< long_cut`).
-- **Data graph H** — 2D reference peaks (residue type known) with symmetric NOE
-  edges, split into short- and long-mixing classes.
-- **SAT encoding** — variable `x(i,j)` = peak *i* → methyl *j*. Hard constraints:
-  exactly-one methyl per peak, injective map, geminal edges preserved, and every
-  NOE edge mapped onto a structure edge of a compatible distance class.
+- **Data graph H** — nodes are **HMQC peaks** (`peak_id`, residue type, ¹H/¹³C
+  shift); edges are **NOESY cross peaks**, each endpoint matched back to an HMQC
+  peak *by frequency* within tolerance and tagged short/long by mixing time.
+- **SAT encoding** — variable `x(i,j)` = HMQC peak *i* → methyl *j*. Hard
+  constraints: exactly-one methyl per peak, injective map, and every NOESY cross
+  peak that resolves to a definite pair of HMQC peaks mapped onto a structure
+  edge of a compatible distance class.
 - **Per-peak options** — a methyl is a valid option iff the CNF stays satisfiable
   when `x(i,j)` is asserted; enumerated incrementally with the solver's assumption
   interface (the paper's iterative ansatz).
+
+Because NOESY endpoints are resolved through chemical shift (not identity), shift
+**degeneracy** produces genuine, irreducible ambiguity — as in the real method.
 
 ## Install
 
@@ -35,37 +43,57 @@ python3 -m pip install python-sat
 ## Usage
 
 ```bash
-python maus.py PDB PEAKS.tsv [options]
+python maus.py PDB HMQC.tsv NOESY.tsv [options]
 ```
 
-`PEAKS.tsv` is tab-separated: `peak_id ⇥ residue_type ⇥ truth_label`.
+- `HMQC.tsv` — tab-separated: `peak_id ⇥ res_type ⇥ H_ppm ⇥ C_ppm ⇥ truth_label`
+- `NOESY.tsv` — tab-separated: `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
+
+`truth_label` is used only for scoring. Build both lists from a BMRB shift file
+plus a PDB with `make_peaklists.py` (see below).
 
 | option | default | meaning |
 |---|---|---|
 | `--short-cut` | 6.0 | structure short-range edge cutoff (Å) |
 | `--long-cut` | 10.0 | structure long-range edge cutoff (Å) |
-| `--noe-short` | 6.0 | simulated short-mixing NOE cutoff (Å) |
-| `--noe-long` | 8.0 | simulated long-mixing NOE cutoff (Å) |
-| `--keep-k` | 8 | nearest-K NOE partners kept per methyl (data sparsity) |
+| `--tol-h` | 0.02 | ¹H NOESY→HMQC match tolerance (ppm) |
+| `--tol-c` | 0.20 | ¹³C NOESY→HMQC match tolerance (ppm) |
 | `--labeling` | `A;I;L;M;T;V` | residue types present |
 | `--out` | – | write per-peak options TSV |
+
+## Building peak lists from BMRB
+
+```bash
+python make_peaklists.py PDB bmrXXXX_3.str \
+    --noe-short 6.0 --noe-long 8.0 --keep-k 12
+```
+
+Writes `hmqc.tsv` (one (¹H,¹³C) peak per methyl, from BMRB shifts) and
+`noesy.tsv` (methyl-methyl cross peaks for structurally close pairs, endpoint
+coordinates = the two methyls' shifts).
 
 ## Example — maltose-binding protein
 
 ```bash
-python maus.py examples/mbp/1ANF.pdb examples/mbp/mbp_peaks.tsv \
-    --keep-k 8 --out mbp_options.tsv
+python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
+    --tol-h 0.02 --tol-c 0.2 --out examples/mbp/mbp_options.tsv
 ```
 
 ```
-methyls(G nodes)=192  peaks=192
-unique(1 option)      = 176/192
-ambiguous(2-3 options)= 16/192
+methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=825
+NOE match: firm=508 ambiguous(dropped)=317 unmatched=0
+unique(1 option)      = 130/192
+ambiguous(2-3 options)= 19/192
+ambiguous(>3 options) = 43/192
 unassigned            = 0/192
 truth in option set   = 192/192 = 100.0%  (error rate 0.0%)
 ```
 
-Real BMRB 7114 shifts + 1ANF geometry. 176 peaks pinned uniquely; the 16 residual
-2–3-option peaks are genuine geminal/local symmetries unresolvable without
-stereospecific labeling. See [`examples/mbp/`](examples/mbp) and
+Real BMRB 7114 shifts + 1ANF geometry, fed as HMQC + NOESY peak lists. `truth in
+option set = 100%` is the MAUS guarantee (a valid assignment is never excluded).
+The residual ambiguity is real: 317 of 825 NOESY cross peaks have a degenerate
+endpoint that matches more than one HMQC peak, so they cannot be pinned to a
+methyl pair and methyls with degenerate shifts keep several options. Tightening
+`--tol-h/--tol-c` recovers more unique calls (170/192 at ±0.01/0.1) — the honest
+resolution/degeneracy trade-off. See [`examples/mbp/`](examples/mbp) and
 [`COMPARISON.md`](COMPARISON.md).

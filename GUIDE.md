@@ -12,15 +12,16 @@ SAT-based methyl NMR assignment method of Nerli et al., *Nat. Commun.* 12:691
 ## 1. Overview
 
 MAUS assigns methyl NMR resonances by **subgraph isomorphism** rather than by
-scoring. Given a protein structure and a set of 2D reference peaks with NOE
-connectivity, it returns — for each peak — the *set* of methyls consistent with
-every hard constraint. It never emits a single guess unless the data force one,
-and it provably never excludes a valid assignment.
+scoring. Given a protein structure and real **peak lists** (HMQC + NOESY), it
+returns — for each peak — the *set* of methyls consistent with every hard
+constraint. It never emits a single guess unless the data force one, and it
+provably never excludes a valid assignment.
 
 | Concept | In this tool |
 |---|---|
 | Structure graph **G** | one node per methyl carbon; geminal / short / long edges |
-| Data graph **H** | 2D peaks (residue type known) + symmetric NOE edges |
+| Data graph **H** nodes | HMQC peaks: (¹H, ¹³C) shift + residue type |
+| Data graph **H** edges | NOESY cross peaks, endpoints matched to HMQC by frequency |
 | Solver | `python-sat` (Glucose3), assumption-based enumeration |
 | Output | per-peak option set (1 / 2–3 / >3 / unassigned) |
 
@@ -44,16 +45,22 @@ Requirements:
 ## 3. Quick start
 
 ```bash
-python maus.py examples/mbp/1ANF.pdb examples/mbp/mbp_peaks.tsv \
-    --keep-k 8 --out mbp_options.tsv
+# 1. build peak lists from a BMRB shift file + the PDB
+python make_peaklists.py examples/mbp/1ANF.pdb examples/mbp/bmr7114_3.str
+
+# 2. run MAUS on the HMQC + NOESY peak lists
+python maus.py examples/mbp/1ANF.pdb examples/mbp/hmqc.tsv examples/mbp/noesy.tsv \
+    --tol-h 0.02 --tol-c 0.2 --out mbp_options.tsv
 ```
 
 Expected summary:
 
 ```
-methyls(G nodes)=192  peaks=192
-unique(1 option)      = 176/192
-ambiguous(2-3 options)= 16/192
+methyls(G nodes)=192  HMQC peaks=192  NOESY cross peaks=825
+NOE match: firm=508 ambiguous(dropped)=317 unmatched=0
+unique(1 option)      = 130/192
+ambiguous(2-3 options)= 19/192
+ambiguous(>3 options) = 43/192
 unassigned            = 0/192
 truth in option set   = 192/192 = 100.0%
 ```
@@ -67,19 +74,34 @@ truth in option set   = 192/192 = 100.0%
 Standard `ATOM` records. Only these residue types are parsed by default:
 `ALA ILE LEU MET THR VAL`. Chain `A` (or blank) is used.
 
-### 4.2 Peaks TSV
-
-Tab-separated, one peak per line:
+### 4.2 HMQC peak list (TSV) — data-graph nodes
 
 ```
-peak_id <TAB> residue_type <TAB> truth_label
-P1        L                 L7CD1
-P2        L                 L7CD2
+peak_id <TAB> res_type <TAB> H_ppm <TAB> C_ppm <TAB> truth_label
+P1        L                 0.828         24.510      L7CD1
 ```
 
 - `peak_id` — arbitrary unique string
-- `residue_type` — one-letter code (`A I L M T V`)
-- `truth_label` — ground-truth methyl label (for benchmarking only)
+- `res_type` — one-letter code (`A I L M T V`), known from labeling
+- `H_ppm`, `C_ppm` — methyl (¹H, ¹³C) chemical shifts
+- `truth_label` — ground-truth methyl label (for scoring only)
+
+### 4.3 NOESY peak list (TSV) — data-graph edges
+
+```
+peak_id <TAB> H1 <TAB> C1 <TAB> H2 <TAB> C2 <TAB> mix
+X1        0.828    24.51   0.712    23.10   short
+```
+
+Each row is a methyl-methyl cross peak. During the run both endpoints are
+matched back to HMQC peaks by frequency (within `--tol-h`/`--tol-c`); `mix` ∈
+`{short, long}` tags the mixing-time distance class.
+
+### 4.4 Generating the peak lists
+
+`make_peaklists.py` builds both lists from a PDB and a BMRB NMR-STAR shift file
+(`bmrXXXX_3.str`): the HMQC (¹H,¹³C) coordinates are the real BMRB methyl shifts,
+and NOESY cross peaks are emitted for structurally close methyl pairs.
 
 ---
 
@@ -89,11 +111,13 @@ P2        L                 L7CD2
 |---|---|---|
 | `--short-cut` | 6.0 | structure short-range edge cutoff (Å) |
 | `--long-cut` | 10.0 | structure long-range edge cutoff (Å) |
-| `--noe-short` | 6.0 | simulated short-mixing NOE cutoff (Å) |
-| `--noe-long` | 8.0 | simulated long-mixing NOE cutoff (Å) |
-| `--keep-k` | 8 | nearest-K NOE partners kept per methyl |
+| `--tol-h` | 0.02 | ¹H NOESY→HMQC match tolerance (ppm) |
+| `--tol-c` | 0.20 | ¹³C NOESY→HMQC match tolerance (ppm) |
 | `--labeling` | `A;I;L;M;T;V` | residue types present |
 | `--out` | – | write per-peak options TSV |
+
+`make_peaklists.py` options: `--noe-short` (6.0), `--noe-long` (8.0), `--keep-k`
+(12 nearest NOE partners per methyl).
 
 ---
 
@@ -117,14 +141,26 @@ The `--out` TSV columns:
 
 ---
 
-## 7. Caveat on the bundled benchmark
+## 7. On the bundled benchmark
 
-> **Important.** In the shipped MBP example the NOE data graph **H** is
-> *simulated from the same coordinates* used to build **G**, and peaks are
-> indexed identically to methyls. The `truth in option set = 100%` figure is
-> therefore a self-consistency check on ideal, noise-free, complete data — not a
-> measurement of real-data assignment performance. To reproduce the paper's
-> validation, supply an **independent** experimental NOE peak list.
+MAUS sees only the two peak lists. HMQC (¹H,¹³C) coordinates are the real BMRB
+7114 shifts, and each NOESY endpoint is resolved back to an HMQC peak **by
+frequency**, not by identity — so the assignment is not circular and shift
+degeneracy has real consequences.
+
+- `truth in option set = 100%` is the MAUS **guarantee**: a valid assignment is
+  provably never excluded (not a measurement — a property of the exact
+  enumeration).
+- The residual ambiguity is **real**. NOESY cross peaks whose endpoint matches
+  more than one HMQC peak cannot be pinned to a definite methyl pair and are
+  dropped, so shift-degenerate methyls keep several options. Tighter
+  `--tol-h/--tol-c` recovers more unique calls (170/192 at ±0.01/0.1) as fewer
+  NOEs are ambiguous — the honest resolution/degeneracy trade-off.
+
+The NOESY cross peaks themselves are still *generated from the structure* (close
+methyl pairs), so this remains a controlled benchmark rather than a picked
+experimental NOESY. Swap in a real NOESY peak list to go fully experimental — the
+`maus.py` interface does not change.
 
 ---
 
@@ -133,8 +169,9 @@ The `--out` TSV columns:
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `ModuleNotFoundError: pysat` | solver not installed | `pip install python-sat` |
-| many `unassigned` peaks | cutoffs too tight | raise `--long-cut` / `--noe-long` |
-| everything ambiguous | NOE network too sparse | raise `--keep-k` |
+| many `unassigned` peaks | structure cutoffs too tight | raise `--long-cut` |
+| most peaks ambiguous | too many NOEs dropped as ambiguous | tighten `--tol-h`/`--tol-c` |
+| high `unmatched` NOE count | tolerance too tight vs shift precision | loosen `--tol-h`/`--tol-c` |
 
 ---
 

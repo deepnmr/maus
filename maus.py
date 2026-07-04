@@ -4,22 +4,24 @@ Based on Nerli, De Paula, McShan & Sgourakis, "Backbone-independent NMR
 resonance assignments of methyl probes in large proteins", Nat. Commun. 12:691
 (2021).  https://doi.org/10.1038/s41467-021-20984-0
 
-Unlike MAGIC (a scoring/exhaustive-search method), MAUS casts methyl assignment
-as a *subgraph isomorphism* solved with a SAT solver:
+Inputs are *peak lists*, as in a real experiment — nothing about the answer is
+baked into the indexing:
 
-  * Structure graph G: one node per methyl carbon; edges classified as
-    geminal / short-range (< short_cut) / long-range (< long_cut) from the PDB.
-  * Data graph H: 2D reference peaks (residue type known) with symmetric NOE
-    edges, split into short- and long-mixing-time classes.
-  * Hard constraints (no scoring): every peak maps to exactly one methyl of the
-    matching residue type, the map is injective, geminal edges are preserved,
-    and every NOE edge must map onto a G edge of a compatible distance class.
+  * HMQC peak list  (data-graph nodes) : each 2D methyl peak carries its
+    (1H, 13C) shift and residue *type*.  Its structural identity is unknown and
+    is what MAUS recovers.
+  * NOESY peak list (data-graph edges) : methyl-methyl cross peaks.  Each
+    endpoint is matched back to an HMQC peak by *frequency* (within tolerance),
+    so shift degeneracy yields genuine, irreducible ambiguity.
+  * Structure graph G : one node per methyl carbon from the PDB; edges
+    classified geminal / short (< short_cut) / long (< long_cut).
 
-For each peak the set of *valid* methyls (those appearing in at least one
-satisfying assignment) is enumerated with the solver's assumption interface —
-the paper's iterative ansatz — giving 1 / 2-3 / >3 option counts and, because
-the enumeration is exact, a guarantee that the ground truth is never excluded
-when the inputs are consistent.
+Hard constraints (no scoring): every HMQC peak maps to exactly one methyl of the
+matching type, the map is injective, and every NOESY cross peak that can be
+assigned to a definite pair of HMQC peaks must map onto a G edge of a compatible
+distance class.  For each peak the set of valid methyls (those in >=1 satisfying
+assignment) is enumerated with the solver's assumption interface — the paper's
+iterative ansatz — so the ground truth is provably never excluded.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import math
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from pysat.solvers import Glucose3
 
@@ -57,7 +59,7 @@ class Methyl:
   geminal_atom: str   # partner methyl atom name, or '' if none
 
 
-def parse_structure(pdb_lines, labeling: Dict[str, List[Tuple[str, str]]]) -> List[Methyl]:
+def parse_structure(pdb_lines, labeling: Dict[str, List[Tuple[str, Optional[str]]]]) -> List[Methyl]:
   coords: Dict[Tuple[str, int], Dict[str, Tuple[float, float, float]]] = {}
   for line in pdb_lines:
     if not line.startswith('ATOM'):
@@ -95,7 +97,7 @@ def parse_structure(pdb_lines, labeling: Dict[str, List[Tuple[str, str]]]) -> Li
 
 
 def build_structure_graph(methyls: List[Methyl], short_cut: float, long_cut: float):
-  """Return dicts of edge classes: geminal / short / long (all symmetric)."""
+  """Return sets of edge classes: geminal / short / long (all symmetric)."""
   gem, short, long = set(), set(), set()
   for a, b in combinations(methyls, 2):
     same_res = a.res_num == b.res_num and a.res_type == b.res_type
@@ -110,32 +112,74 @@ def build_structure_graph(methyls: List[Methyl], short_cut: float, long_cut: flo
   return gem, short, long
 
 
-@dataclass
+@dataclass(frozen=True)
 class Peak:
   index: int
   peak_id: str
   res_type: str
+  h_ppm: float
+  c_ppm: float
   truth_label: str
 
 
-def simulate_noe(methyls: List[Methyl], short_cut: float, long_cut: float, keep_k: int):
-  """Simulate symmetric short/long NOE edges from the structure (sparse: the
-  KEEP_K nearest partners per methyl within long_cut), mimicking real data."""
+def load_hmqc(path: str) -> List[Peak]:
+  peaks: List[Peak] = []
+  for line in Path(path).read_text().splitlines():
+    if not line.strip() or line.startswith('#') or line.startswith('peak_id'):
+      continue
+    pid, rtype, h, c, truth = line.split('\t')
+    peaks.append(Peak(index=len(peaks), peak_id=pid, res_type=rtype,
+                      h_ppm=float(h), c_ppm=float(c), truth_label=truth))
+  return peaks
+
+
+@dataclass(frozen=True)
+class Cross:
+  h1: float
+  c1: float
+  h2: float
+  c2: float
+  mix: str            # 'short' | 'long'
+
+
+def load_noesy(path: str) -> List[Cross]:
+  cps: List[Cross] = []
+  for line in Path(path).read_text().splitlines():
+    if not line.strip() or line.startswith('#') or line.startswith('peak_id'):
+      continue
+    _pid, h1, c1, h2, c2, mix = line.split('\t')
+    cps.append(Cross(float(h1), float(c1), float(h2), float(c2), mix.strip()))
+  return cps
+
+
+def match_noe(peaks: List[Peak], crosses: List[Cross], tol_h: float, tol_c: float):
+  """Resolve each NOESY endpoint to HMQC peaks by frequency (both dimensions
+  within tolerance).  A cross peak becomes a *firm* data edge only when BOTH
+  endpoints match a unique HMQC peak; otherwise it is ambiguous and dropped
+  (conservative — never excludes a valid assignment, only forgoes resolving
+  power).  Returns (short_edges, long_edges, stats)."""
+  def candidates(h, c):
+    return [p.index for p in peaks
+            if abs(p.h_ppm - h) <= tol_h and abs(p.c_ppm - c) <= tol_c]
+
   short_e, long_e = set(), set()
-  for a in methyls:
-    dists = sorted((math.dist(a.coord, b.coord), b.index) for b in methyls if b.index != a.index)
-    for d, j in dists[:keep_k]:
-      if d > long_cut:
-        break
-      pair = (a.index, j)
-      if d < short_cut:
-        short_e.add(pair)
-      else:
-        long_e.add(pair)
-  # symmetrize (keep only edges seen in both directions — MAUS symmetrization)
-  short_sym = {(i, j) for (i, j) in short_e if (j, i) in short_e}
-  long_sym = {(i, j) for (i, j) in long_e if (j, i) in long_e}
-  return short_sym, long_sym
+  firm = ambiguous = unmatched = 0
+  for cp in crosses:
+    a = candidates(cp.h1, cp.c1)
+    b = candidates(cp.h2, cp.c2)
+    if not a or not b:
+      unmatched += 1
+      continue
+    if len(a) == 1 and len(b) == 1 and a[0] != b[0]:
+      i, j = a[0], b[0]
+      edge = (min(i, j), max(i, j))
+      (short_e if cp.mix == 'short' else long_e).add(edge)
+      firm += 1
+    else:
+      ambiguous += 1
+  stats = {'firm': firm, 'ambiguous': ambiguous, 'unmatched': unmatched,
+           'short': len(short_e), 'long': len(long_e)}
+  return short_e, long_e, stats
 
 
 class MAUS:
@@ -177,21 +221,18 @@ class MAUS:
     for g, lits in peaks_of.items():
       for a, b in combinations(lits, 2):
         clauses.append([-a, -b])
-    # (3) every NOE edge must map onto a compatible structure edge.
+    # (3) every firm NOE edge must map onto a compatible structure edge.
     #     short NOE -> geminal or short G-edge; long NOE -> any G-edge (<= long_cut)
     short_ok = self.gem | self.short_g
     long_ok = self.gem | self.short_g | self.long_g
     for noe, allowed in ((self.short_noe, short_ok), (self.long_noe, long_ok)):
       for (i, j) in noe:
-        if i >= j:            # each unordered edge once
-          continue
         di, dj = self.domain[i], self.domain[j]
         for gi in di:
           for gj in dj:
             if gi == gj:
               continue
             if (gi, gj) not in allowed:
-              # forbid this simultaneous assignment
               clauses.append([-self.var[(i, gi)], -self.var[(j, gj)]])
     return clauses
 
@@ -211,14 +252,13 @@ class MAUS:
     return options
 
 
-def parse_labeling(spec: str) -> Dict[str, List[Tuple[str, str]]]:
-  labeling: Dict[str, List[Tuple[str, str]]] = {}
+def parse_labeling(spec: str) -> Dict[str, List[Tuple[str, Optional[str]]]]:
+  labeling: Dict[str, List[Tuple[str, Optional[str]]]] = {}
   for chunk in spec.split(';'):
     chunk = chunk.strip()
     if not chunk:
       continue
-    tokens = [t.strip() for t in chunk.split(',')]
-    one = tokens[0]
+    one = chunk.split(',')[0].strip()
     labeling[one] = METHYL_ATOMS.get(one, [])
   return labeling
 
@@ -226,27 +266,23 @@ def parse_labeling(spec: str) -> Dict[str, List[Tuple[str, str]]]:
 def main(argv=None):
   ap = argparse.ArgumentParser(description='MAUS: SAT-based methyl assignment (clean-room).')
   ap.add_argument('pdb')
-  ap.add_argument('peaks', help='TSV: peak_id  res_type  truth_label')
-  ap.add_argument('--short-cut', type=float, default=6.0)
-  ap.add_argument('--long-cut', type=float, default=10.0)
-  ap.add_argument('--noe-short', type=float, default=6.0)
-  ap.add_argument('--noe-long', type=float, default=8.0)
-  ap.add_argument('--keep-k', type=int, default=8)
+  ap.add_argument('hmqc', help='HMQC peak list TSV: peak_id res_type H_ppm C_ppm truth_label')
+  ap.add_argument('noesy', help='NOESY peak list TSV: peak_id H1 C1 H2 C2 mix')
+  ap.add_argument('--short-cut', type=float, default=6.0, help='structure short-range cutoff (A)')
+  ap.add_argument('--long-cut', type=float, default=10.0, help='structure long-range cutoff (A)')
+  ap.add_argument('--tol-h', type=float, default=0.02, help='1H match tolerance (ppm)')
+  ap.add_argument('--tol-c', type=float, default=0.20, help='13C match tolerance (ppm)')
   ap.add_argument('--labeling', default='A;I;L;M;T;V')
   ap.add_argument('--out', default=None, help='write per-peak options TSV here')
   args = ap.parse_args(argv)
 
   labeling = parse_labeling(args.labeling)
   methyls = parse_structure(Path(args.pdb).read_text().splitlines(), labeling)
-  peaks = []
-  for line in Path(args.peaks).read_text().splitlines():
-    if not line.strip() or line.startswith('#'):
-      continue
-    pid, rtype, truth = line.split('\t')
-    peaks.append(Peak(index=len(peaks), peak_id=pid, res_type=rtype, truth_label=truth))
+  peaks = load_hmqc(args.hmqc)
+  crosses = load_noesy(args.noesy)
 
   gem, short_g, long_g = build_structure_graph(methyls, args.short_cut, args.long_cut)
-  short_noe, long_noe = simulate_noe(methyls, args.noe_short, args.noe_long, args.keep_k)
+  short_noe, long_noe, nstat = match_noe(peaks, crosses, args.tol_h, args.tol_c)
   maus = MAUS(methyls, peaks, gem, short_g, long_g, short_noe, long_noe)
   options = maus.solve_options()
 
@@ -259,29 +295,31 @@ def main(argv=None):
         f.write(f'{p.peak_id}\t{p.res_type}\t{len(labels)}\t'
                 f'{",".join(labels)}\t{p.truth_label}\t'
                 f'{int(p.truth_label in labels)}\n')
+
   n = len(peaks)
   unique = amb23 = amb_more = unassigned = correct_in_set = 0
   for p in peaks:
-    opts = options[p.index]
-    labels = [label_by_index[g] for g in opts]
-    if len(opts) == 0:
+    labels = [label_by_index[g] for g in options[p.index]]
+    k = len(labels)
+    if k == 0:
       unassigned += 1
-    elif len(opts) == 1:
+    elif k == 1:
       unique += 1
-    elif len(opts) <= 3:
+    elif k <= 3:
       amb23 += 1
     else:
       amb_more += 1
     if p.truth_label in labels:
       correct_in_set += 1
-  # accuracy of the unique calls
   unique_correct = sum(1 for p in peaks
                        if len(options[p.index]) == 1
                        and label_by_index[options[p.index][0]] == p.truth_label)
 
-  print(f'methyls(G nodes)={len(methyls)}  peaks={n}')
+  print(f'methyls(G nodes)={len(methyls)}  HMQC peaks={n}  NOESY cross peaks={len(crosses)}')
   print(f'G edges: geminal={len(gem)//2} short={len(short_g)//2} long={len(long_g)//2}')
-  print(f'NOE edges: short={len(short_noe)//2} long={len(long_noe)//2}')
+  print(f'NOE match (tol H+-{args.tol_h}/C+-{args.tol_c}): '
+        f'firm={nstat["firm"]} ambiguous(dropped)={nstat["ambiguous"]} unmatched={nstat["unmatched"]}')
+  print(f'firm data edges: short={nstat["short"]} long={nstat["long"]}')
   print(f'unique(1 option)      = {unique}/{n}')
   print(f'ambiguous(2-3 options)= {amb23}/{n}')
   print(f'ambiguous(>3 options) = {amb_more}/{n}')
