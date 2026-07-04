@@ -105,6 +105,19 @@ Each row is a methyl-methyl cross peak. During the run both endpoints are
 matched back to HMQC peaks by frequency (within `--tol-h`/`--tol-c`); `mix` ∈
 `{short, long}` tags the mixing-time distance class.
 
+### 4.3b HMBC-HMQC peak list (TSV, optional) — geminal links
+
+```
+peak_id <TAB> H1 <TAB> C1 <TAB> H2 <TAB> C2
+B1        0.340    25.39   0.560    24.56
+```
+
+Each row links the two prochiral methyls of one Leu/Val residue (same-residue
+correlation). Pass with `--hmbc`; MAUS matches both endpoints to HMQC peaks and
+forces the pair onto a geminal structure edge. It couples the pair but does not
+change per-peak option *counts* on MBP (the residual ambiguity is prochiral or
+shift-degenerate); the never-exclude guarantee is preserved.
+
 ### 4.4 Generating the peak lists
 
 `make_peaklists.py` builds all three files from a PDB and a BMRB NMR-STAR shift
@@ -120,8 +133,10 @@ cross peaks are emitted for structurally close methyl pairs.
 |---|---|---|
 | `--short-cut` | 6.0 | structure short-range edge cutoff (Å) |
 | `--long-cut` | 10.0 | structure long-range edge cutoff (Å) |
-| `--tol-h` | 0.02 | ¹H NOESY→HMQC match tolerance (ppm) |
-| `--tol-c` | 0.20 | ¹³C NOESY→HMQC match tolerance (ppm) |
+| `--tol-h` | 0.02 | ¹H NOESY/HMBC→HMQC match tolerance (ppm) |
+| `--tol-c` | 0.20 | ¹³C NOESY/HMBC→HMQC match tolerance (ppm) |
+| `--hmbc` | – | optional HMBC-HMQC geminal-link peak list |
+| `--truth` | – | truth-key TSV for scoring |
 | `--labeling` | `A;I;L;M;T;V` | residue types present |
 | `--out` | – | write per-peak options TSV |
 

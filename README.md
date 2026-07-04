@@ -43,12 +43,15 @@ python3 -m pip install python-sat
 ## Usage
 
 ```bash
-python maus.py PDB HMQC.tsv NOESY.tsv [--truth TRUTH.tsv] [options]
+python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [options]
 ```
 
 - `HMQC.tsv` (input) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type`. `label` is an
   anonymous peak id (`P1, P2, …`) that leaks nothing about the answer.
 - `NOESY.tsv` — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
+- `HMBC.tsv` (optional) — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2`. Each row is an
+  HMBC-HMQC geminal link (the two prochiral methyls of one Leu/Val); MAUS forces
+  the linked pair onto a geminal structure edge. Pass with `--hmbc`.
 - `TRUTH.tsv` (optional, scoring only) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True`,
   where `True` is the real methyl for each label. Pass with `--truth` to score.
 
@@ -72,8 +75,16 @@ python make_peaklists.py PDB bmrXXXX_3.str \
 ```
 
 Writes `hmqc.tsv` (input, anonymous labels), `hmqc_true.tsv` (truth key with the
-`True` column), and `noesy.tsv` (methyl-methyl cross peaks for structurally close
-pairs, endpoint coordinates = the two methyls' shifts).
+`True` column), `noesy.tsv` (methyl-methyl cross peaks for structurally close
+pairs), and `hmbc.tsv` (one geminal link per Leu/Val residue).
+
+> **Note on HMBC.** Geminal links couple a Leu/Val pair (which two peaks share a
+> residue) but not *which* residue, so they do not change the per-peak option
+> *counts* on MBP — the residual ambiguity there is prochiral (CD1↔CD2 /
+> CG1↔CG2, intrinsically unresolvable) or shift-degenerate (where the HMBC link
+> is itself ambiguous and dropped). The constraint is applied and the
+> never-exclude guarantee is preserved; it is most useful for propagating an
+> assignment across the pair downstream.
 
 ## Example — maltose-binding protein
 

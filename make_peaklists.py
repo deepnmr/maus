@@ -24,6 +24,12 @@ noesy.tsv : peak_id  H1  C1  H2  C2  mix
     methyls' (1H,13C) shifts; `mix` in {short,long} tags the mixing-time
     class.  Cross peaks are generated for structurally close methyl pairs;
     MAUS re-matches each endpoint back to hmqc.tsv by frequency.
+
+hmbc.tsv : peak_id  H1  C1  H2  C2
+    Optional HMBC-HMQC geminal links: one row per Leu/Val residue, linking its
+    two prochiral methyls (same-residue correlation).  Endpoints are the two
+    methyl (1H,13C) shifts; MAUS re-matches them and forces the pair onto a
+    geminal structure edge.
 """
 
 from __future__ import annotations
@@ -132,6 +138,7 @@ def main(argv=None):
   ap.add_argument('--hmqc-out', default='examples/mbp/hmqc.tsv')
   ap.add_argument('--truth-out', default='examples/mbp/hmqc_true.tsv')
   ap.add_argument('--noesy-out', default='examples/mbp/noesy.tsv')
+  ap.add_argument('--hmbc-out', default='examples/mbp/hmbc.tsv')
   args = ap.parse_args(argv)
 
   coords = parse_structure_coords(Path(args.pdb).read_text().splitlines())
@@ -173,6 +180,23 @@ def main(argv=None):
       f'X{k}\t{ma["H"]:.3f}\t{ma["C"]:.3f}\t{mb["H"]:.3f}\t{mb["C"]:.3f}\t{mix}')
   Path(args.noesy_out).write_text('\n'.join(noesy_lines) + '\n')
 
+  # --- HMBC-HMQC geminal links: one row per Leu/Val residue (CD1<->CD2, CG1<->CG2) ---
+  by_label = {m['label']: m for m in methyls}
+  hmbc_pairs = []
+  for m in methyls:
+    if not m['geminal']:
+      continue
+    if m['carbon'] > m['geminal']:      # emit once, from the lower carbon name
+      continue
+    partner = by_label.get(m['label'][:-len(m['carbon'])] + m['geminal'])
+    if partner is not None:
+      hmbc_pairs.append((m, partner))
+  hmbc_lines = ['peak_id\tH1\tC1\tH2\tC2']
+  for k, (ma, mb) in enumerate(hmbc_pairs, 1):
+    hmbc_lines.append(
+      f'B{k}\t{ma["H"]:.3f}\t{ma["C"]:.3f}\t{mb["H"]:.3f}\t{mb["C"]:.3f}')
+  Path(args.hmbc_out).write_text('\n'.join(hmbc_lines) + '\n')
+
   # --- degeneracy report ---
   seen: Dict[Tuple[float, float], int] = {}
   for m in methyls:
@@ -185,6 +209,7 @@ def main(argv=None):
   print(f'HMQC truth key      = {len(methyls)}  -> {args.truth_out}')
   print(f'NOESY cross peaks   = {len(noe)}  (short={sum(v=="short" for v in noe.values())}'
         f' long={sum(v=="long" for v in noe.values())})  -> {args.noesy_out}')
+  print(f'HMBC geminal links  = {len(hmbc_pairs)}  -> {args.hmbc_out}')
   print(f'near-degenerate HMQC peaks (>=2 within 0.01/0.01 ppm bin) = {degenerate}')
   return 0
 

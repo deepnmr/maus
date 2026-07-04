@@ -164,6 +164,43 @@ def load_noesy(path: str) -> List[Cross]:
   return cps
 
 
+def load_hmbc(path: str) -> List[Tuple[float, float, float, float]]:
+  """Optional HMBC-HMQC list: peak_id H1 C1 H2 C2 — each row links the two
+  geminal methyls of one Leu/Val residue (same-residue correlation)."""
+  links = []
+  for line in Path(path).read_text().splitlines():
+    if not line.strip() or line.startswith('#') or line.startswith('peak_id'):
+      continue
+    _pid, h1, c1, h2, c2 = line.split('\t')[:5]
+    links.append((float(h1), float(c1), float(h2), float(c2)))
+  return links
+
+
+def match_hmbc(peaks: List[Peak], links, tol_h: float, tol_c: float):
+  """Resolve HMBC endpoints to HMQC peaks by frequency.  A firm geminal link is
+  kept only when both endpoints match a unique HMQC peak.  Returns
+  (gem_link_edges, stats)."""
+  def candidates(h, c):
+    return [p.index for p in peaks
+            if abs(p.h_ppm - h) <= tol_h and abs(p.c_ppm - c) <= tol_c]
+
+  gem_links = set()
+  firm = ambiguous = unmatched = 0
+  for (h1, c1, h2, c2) in links:
+    a = candidates(h1, c1)
+    b = candidates(h2, c2)
+    if not a or not b:
+      unmatched += 1
+      continue
+    if len(a) == 1 and len(b) == 1 and a[0] != b[0]:
+      i, j = a[0], b[0]
+      gem_links.add((min(i, j), max(i, j)))
+      firm += 1
+    else:
+      ambiguous += 1
+  return gem_links, {'firm': firm, 'ambiguous': ambiguous, 'unmatched': unmatched}
+
+
 def match_noe(peaks: List[Peak], crosses: List[Cross], tol_h: float, tol_c: float):
   """Resolve each NOESY endpoint to HMQC peaks by frequency (both dimensions
   within tolerance).  A cross peak becomes a *firm* data edge only when BOTH
@@ -195,11 +232,13 @@ def match_noe(peaks: List[Peak], crosses: List[Cross], tol_h: float, tol_c: floa
 
 
 class MAUS:
-  def __init__(self, methyls, peaks, gem, short_g, long_g, short_noe, long_noe):
+  def __init__(self, methyls, peaks, gem, short_g, long_g, short_noe, long_noe,
+               gem_links=None):
     self.methyls = methyls
     self.peaks = peaks
     self.gem, self.short_g, self.long_g = gem, short_g, long_g
     self.short_noe, self.long_noe = short_noe, long_noe
+    self.gem_links = gem_links or set()   # HMBC geminal same-residue links
     self.sites_by_type: Dict[str, List[int]] = {}
     for m in methyls:
       self.sites_by_type.setdefault(m.res_type, []).append(m.index)
@@ -246,6 +285,16 @@ class MAUS:
               continue
             if (gi, gj) not in allowed:
               clauses.append([-self.var[(i, gi)], -self.var[(j, gj)]])
+    # (4) optional HMBC geminal links: the two linked peaks must map to the two
+    #     geminal methyls of one residue -> only geminal G-edges allowed.
+    for (i, j) in self.gem_links:
+      di, dj = self.domain[i], self.domain[j]
+      for gi in di:
+        for gj in dj:
+          if gi == gj:
+            continue
+          if (gi, gj) not in self.gem:
+            clauses.append([-self.var[(i, gi)], -self.var[(j, gj)]])
     return clauses
 
   def solve_options(self) -> Dict[int, List[int]]:
@@ -280,6 +329,9 @@ def main(argv=None):
   ap.add_argument('pdb')
   ap.add_argument('hmqc', help='HMQC peak list TSV: label H_ppm C_ppm res_type')
   ap.add_argument('noesy', help='NOESY peak list TSV: peak_id H1 C1 H2 C2 mix')
+  ap.add_argument('--hmbc', default=None,
+                  help='optional HMBC-HMQC peak list TSV (peak_id H1 C1 H2 C2): '
+                       'geminal same-residue links for Leu/Val')
   ap.add_argument('--truth', default=None,
                   help='truth key TSV (label ... True) for scoring only')
   ap.add_argument('--short-cut', type=float, default=6.0, help='structure short-range cutoff (A)')
@@ -297,7 +349,10 @@ def main(argv=None):
 
   gem, short_g, long_g = build_structure_graph(methyls, args.short_cut, args.long_cut)
   short_noe, long_noe, nstat = match_noe(peaks, crosses, args.tol_h, args.tol_c)
-  maus = MAUS(methyls, peaks, gem, short_g, long_g, short_noe, long_noe)
+  gem_links, hstat = set(), None
+  if args.hmbc:
+    gem_links, hstat = match_hmbc(peaks, load_hmbc(args.hmbc), args.tol_h, args.tol_c)
+  maus = MAUS(methyls, peaks, gem, short_g, long_g, short_noe, long_noe, gem_links)
   options = maus.solve_options()
 
   label_by_index = {m.index: m.label for m in methyls}
@@ -334,6 +389,9 @@ def main(argv=None):
   print(f'NOE match (tol H+-{args.tol_h}/C+-{args.tol_c}): '
         f'firm={nstat["firm"]} ambiguous(dropped)={nstat["ambiguous"]} unmatched={nstat["unmatched"]}')
   print(f'firm data edges: short={nstat["short"]} long={nstat["long"]}')
+  if hstat is not None:
+    print(f'HMBC geminal links: firm={hstat["firm"]} '
+          f'ambiguous={hstat["ambiguous"]} unmatched={hstat["unmatched"]}')
   print(f'unique(1 option)      = {unique}/{n}')
   print(f'ambiguous(2-3 options)= {amb23}/{n}')
   print(f'ambiguous(>3 options) = {amb_more}/{n}')
