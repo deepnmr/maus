@@ -25,11 +25,11 @@ noesy.tsv : peak_id  H1  C1  H2  C2  mix
     class.  Cross peaks are generated for structurally close methyl pairs;
     MAUS re-matches each endpoint back to hmqc.tsv by frequency.
 
-hmbc.tsv : peak_id  H1  C1  H2  C2
-    Optional HMBC-HMQC geminal links: one row per Leu/Val residue, linking its
-    two prochiral methyls (same-residue correlation).  Endpoints are the two
-    methyl (1H,13C) shifts; MAUS re-matches them and forces the pair onto a
-    geminal structure edge.
+hmbc.tsv : label  C1  C2  H
+    Optional HMBC-HMQC geminal links: one row per Leu/Val residue.  A methyl
+    proton (H) is correlated to its own methyl carbon (C1) and to its geminal
+    partner's carbon (C2).  MAUS matches endpoint A by (H,C1) and endpoint B by
+    carbon C2, then forces the pair onto a geminal structure edge.
 """
 
 from __future__ import annotations
@@ -191,10 +191,11 @@ def main(argv=None):
     partner = by_label.get(m['label'][:-len(m['carbon'])] + m['geminal'])
     if partner is not None:
       hmbc_pairs.append((m, partner))
-  hmbc_lines = ['peak_id\tH1\tC1\tH2\tC2']
+  hmbc_lines = ['label\tC1\tC2\tH']
   for k, (ma, mb) in enumerate(hmbc_pairs, 1):
+    # own methyl ma: proton H + carbon C1; partner mb: carbon C2
     hmbc_lines.append(
-      f'B{k}\t{ma["H"]:.3f}\t{ma["C"]:.3f}\t{mb["H"]:.3f}\t{mb["C"]:.3f}')
+      f'B{k}\t{ma["C"]:.3f}\t{mb["C"]:.3f}\t{ma["H"]:.3f}')
   Path(args.hmbc_out).write_text('\n'.join(hmbc_lines) + '\n')
 
   # --- degeneracy report ---

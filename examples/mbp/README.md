@@ -9,7 +9,7 @@ Input for the SAT assigner `maus.py` (see repo root). MAUS now consumes real
 | `hmqc.tsv` | 192 methyl HMQC **input** peaks: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type` (anonymous `P1…`) |
 | `hmqc_true.tsv` | truth key: `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True` (scoring only) |
 | `noesy.tsv` | 825 methyl-methyl NOESY cross peaks: `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` |
-| `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2` |
+| `hmbc.tsv` | 50 optional HMBC-HMQC geminal links (Leu/Val): `label ⇥ C1 ⇥ C2 ⇥ H` |
 | `mbp_options.tsv` | reference output: per-peak option sets from the run below |
 
 Both peak lists are generated from **BMRB 7114 chemical shifts** and the 1ANF

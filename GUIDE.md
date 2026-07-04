@@ -108,15 +108,17 @@ matched back to HMQC peaks by frequency (within `--tol-h`/`--tol-c`); `mix` ∈
 ### 4.3b HMBC-HMQC peak list (TSV, optional) — geminal links
 
 ```
-peak_id <TAB> H1 <TAB> C1 <TAB> H2 <TAB> C2
-B1        0.340    25.39   0.560    24.56
+label <TAB> C1 <TAB> C2 <TAB> H
+B1      25.39    24.56   0.340
 ```
 
-Each row links the two prochiral methyls of one Leu/Val residue (same-residue
-correlation). Pass with `--hmbc`; MAUS matches both endpoints to HMQC peaks and
-forces the pair onto a geminal structure edge. It couples the pair but does not
-change per-peak option *counts* on MBP (the residual ambiguity is prochiral or
-shift-degenerate); the never-exclude guarantee is preserved.
+One row per Leu/Val residue: a methyl proton `H` correlated to its own carbon
+`C1` and its geminal partner's carbon `C2`. Pass with `--hmbc`; MAUS matches
+endpoint A by `(H,C1)` and endpoint B by carbon `C2` (partner proton absent),
+then forces the pair onto a geminal structure edge. The carbon-only endpoint is
+degenerate (on MBP ~1/50 links resolve; the rest drop), and even a firm link
+couples the pair without fixing which residue — so per-peak option *counts* are
+unchanged on MBP. The never-exclude guarantee is preserved.
 
 ### 4.4 Generating the peak lists
 

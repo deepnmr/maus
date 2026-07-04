@@ -164,31 +164,37 @@ def load_noesy(path: str) -> List[Cross]:
   return cps
 
 
-def load_hmbc(path: str) -> List[Tuple[float, float, float, float]]:
-  """Optional HMBC-HMQC list: peak_id H1 C1 H2 C2 — each row links the two
-  geminal methyls of one Leu/Val residue (same-residue correlation)."""
+def load_hmbc(path: str) -> List[Tuple[float, float, float]]:
+  """Optional HMBC-HMQC list: label C1 C2 H — a methyl proton (H) correlated to
+  its own methyl carbon (C1) and to its geminal partner's carbon (C2) in one
+  Leu/Val residue.  Returns [(c1, c2, h)]."""
   links = []
   for line in Path(path).read_text().splitlines():
-    if not line.strip() or line.startswith('#') or line.startswith('peak_id'):
+    if not line.strip() or line.startswith('#') or line.startswith('label'):
       continue
-    _pid, h1, c1, h2, c2 = line.split('\t')[:5]
-    links.append((float(h1), float(c1), float(h2), float(c2)))
+    _label, c1, c2, h = line.split('\t')[:4]
+    links.append((float(c1), float(c2), float(h)))
   return links
 
 
 def match_hmbc(peaks: List[Peak], links, tol_h: float, tol_c: float):
-  """Resolve HMBC endpoints to HMQC peaks by frequency.  A firm geminal link is
-  kept only when both endpoints match a unique HMQC peak.  Returns
+  """Resolve each HMBC row to a pair of HMQC peaks.  Endpoint A (own methyl) is
+  matched on both dimensions (H, C1); endpoint B (geminal partner) is matched on
+  carbon only (C2) — the partner's proton is not in the row.  A firm geminal
+  link is kept only when both endpoints resolve to a unique HMQC peak.  Returns
   (gem_link_edges, stats)."""
-  def candidates(h, c):
+  def cand_hc(h, c):
     return [p.index for p in peaks
             if abs(p.h_ppm - h) <= tol_h and abs(p.c_ppm - c) <= tol_c]
 
+  def cand_c(c):
+    return [p.index for p in peaks if abs(p.c_ppm - c) <= tol_c]
+
   gem_links = set()
   firm = ambiguous = unmatched = 0
-  for (h1, c1, h2, c2) in links:
-    a = candidates(h1, c1)
-    b = candidates(h2, c2)
+  for (c1, c2, h) in links:
+    a = cand_hc(h, c1)
+    b = cand_c(c2)
     if not a or not b:
       unmatched += 1
       continue
@@ -330,7 +336,7 @@ def main(argv=None):
   ap.add_argument('hmqc', help='HMQC peak list TSV: label H_ppm C_ppm res_type')
   ap.add_argument('noesy', help='NOESY peak list TSV: peak_id H1 C1 H2 C2 mix')
   ap.add_argument('--hmbc', default=None,
-                  help='optional HMBC-HMQC peak list TSV (peak_id H1 C1 H2 C2): '
+                  help='optional HMBC-HMQC peak list TSV (label C1 C2 H): '
                        'geminal same-residue links for Leu/Val')
   ap.add_argument('--truth', default=None,
                   help='truth key TSV (label ... True) for scoring only')

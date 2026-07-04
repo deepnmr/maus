@@ -49,9 +49,10 @@ python maus.py PDB HMQC.tsv NOESY.tsv [--hmbc HMBC.tsv] [--truth TRUTH.tsv] [opt
 - `HMQC.tsv` (input) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type`. `label` is an
   anonymous peak id (`P1, P2, …`) that leaks nothing about the answer.
 - `NOESY.tsv` — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2 ⇥ mix` (`mix` ∈ short/long)
-- `HMBC.tsv` (optional) — `peak_id ⇥ H1 ⇥ C1 ⇥ H2 ⇥ C2`. Each row is an
-  HMBC-HMQC geminal link (the two prochiral methyls of one Leu/Val); MAUS forces
-  the linked pair onto a geminal structure edge. Pass with `--hmbc`.
+- `HMBC.tsv` (optional) — `label ⇥ C1 ⇥ C2 ⇥ H`. A methyl proton `H` correlated
+  to its own carbon `C1` and its geminal partner's carbon `C2` (one Leu/Val
+  residue). MAUS matches endpoint A by `(H,C1)` and endpoint B by carbon `C2`,
+  then forces the pair onto a geminal structure edge. Pass with `--hmbc`.
 - `TRUTH.tsv` (optional, scoring only) — `label ⇥ H_ppm ⇥ C_ppm ⇥ res_type ⇥ True`,
   where `True` is the real methyl for each label. Pass with `--truth` to score.
 
@@ -78,13 +79,14 @@ Writes `hmqc.tsv` (input, anonymous labels), `hmqc_true.tsv` (truth key with the
 `True` column), `noesy.tsv` (methyl-methyl cross peaks for structurally close
 pairs), and `hmbc.tsv` (one geminal link per Leu/Val residue).
 
-> **Note on HMBC.** Geminal links couple a Leu/Val pair (which two peaks share a
-> residue) but not *which* residue, so they do not change the per-peak option
-> *counts* on MBP — the residual ambiguity there is prochiral (CD1↔CD2 /
-> CG1↔CG2, intrinsically unresolvable) or shift-degenerate (where the HMBC link
-> is itself ambiguous and dropped). The constraint is applied and the
-> never-exclude guarantee is preserved; it is most useful for propagating an
-> assignment across the pair downstream.
+> **Note on HMBC.** The geminal-partner endpoint is matched on **carbon only**
+> (its proton is not in the row), which is highly degenerate — on MBP only ~1 of
+> 50 links resolves uniquely, the rest drop as ambiguous. Even a firm link
+> couples a Leu/Val pair (which two peaks share a residue) but not *which*
+> residue, so it does not change the per-peak option *counts* on MBP — the
+> residual ambiguity is prochiral (CD1↔CD2 / CG1↔CG2, intrinsically
+> unresolvable) or shift-degenerate. The constraint is applied and the
+> never-exclude guarantee is preserved.
 
 ## Example — maltose-binding protein
 
